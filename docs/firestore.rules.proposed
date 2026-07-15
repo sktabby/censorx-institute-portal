@@ -1,0 +1,79 @@
+// ============================================================================
+// REVIEW BEFORE DEPLOYING TO THE SHARED FIREBASE PROJECT.
+//
+// This is a PROPOSED rules section covering only the portal's collections.
+// The existing Android app almost certainly already has Firestore rules
+// covering its own collections (parent/child data, etc). Do NOT replace the
+// existing rules.rules file wholesale — merge only the sections below into
+// it, and have someone familiar with the Android app's existing rules
+// review the merge before deploying.
+//
+// Design principle: the React frontend never writes directly to any of
+// these collections. All sensitive reads/writes go through the Express
+// backend using the Firebase Admin SDK, which bypasses these rules
+// entirely. These rules exist as a defense-in-depth backstop, not as the
+// primary access-control mechanism for the portal.
+// ============================================================================
+
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Portal-related collections: deny all direct client access.
+    // All portal reads/writes MUST go through the Express backend
+    // (Firebase Admin SDK bypasses these rules).
+    match /portalUsers/{uid} {
+      allow read, write: if false;
+    }
+
+    match /organizations/{organizationId} {
+      allow read, write: if false;
+    }
+
+    match /organizationSubscriptions/{subscriptionId} {
+      allow read, write: if false;
+    }
+
+    match /organizationLicenses/{licenseId} {
+      allow read, write: if false;
+    }
+
+    match /organizationActivationCodes/{codeHash} {
+      allow read, write: if false;
+    }
+
+    match /organizationMembers/{memberId} {
+      allow read, write: if false;
+    }
+
+    match /userOrganizationEntitlements/{uid} {
+      // If the Android app needs to read its OWN entitlement directly
+      // from Firestore (in addition to the /entitlement API), a narrow
+      // read-only rule like the one below could be considered — but
+      // prefer routing through the API so server-time validation is
+      // always applied. Left commented out intentionally.
+      //
+      // allow read: if request.auth != null && request.auth.uid == uid;
+      allow read, write: if false;
+    }
+
+    match /organizationAuditLogs/{auditId} {
+      allow read, write: if false;
+    }
+
+    match /instituteEnquiries/{enquiryId} {
+      // Only the backend (Admin SDK) writes here, via the public
+      // enquiry endpoint. No direct client access.
+      allow read, write: if false;
+    }
+
+    // ------------------------------------------------------------------
+    // Everything below this line is assumed to already exist for the
+    // Android app (parent/child accounts, personal subscriptions, etc).
+    // Do not modify those rules as part of this merge — insert the
+    // sections above alongside them, then have the rules reviewed and
+    // tested (e.g. with the Firebase Emulator Suite) before deploying.
+    // ------------------------------------------------------------------
+  }
+}

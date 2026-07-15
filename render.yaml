@@ -1,0 +1,68 @@
+services:
+  # ---------------------------------------------------------------
+  # Backend API (Express) -> https://api.censorx.in
+  # ---------------------------------------------------------------
+  - type: web
+    name: censorx-institute-portal-api
+    runtime: node
+    plan: starter
+    rootDir: server
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 8080
+      - key: TRUST_PROXY
+        value: "1"
+      - key: CLIENT_ORIGINS
+        sync: false
+      - key: FIREBASE_PROJECT_ID
+        sync: false
+      - key: FIREBASE_CLIENT_EMAIL
+        sync: false
+      - key: FIREBASE_PRIVATE_KEY
+        sync: false
+      - key: ORG_CODE_PEPPER
+        sync: false
+      - key: APP_CHECK_ENFORCED
+        value: "false"
+      - key: ALLOW_ADMIN_BOOTSTRAP
+        value: "false"
+      - key: LOG_LEVEL
+        value: info
+
+  # ---------------------------------------------------------------
+  # Frontend (Vite static build) -> https://portal.censorx.in
+  # ---------------------------------------------------------------
+  - type: web
+    name: censorx-institute-portal-client
+    runtime: static
+    rootDir: client
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_FIREBASE_API_KEY
+        sync: false
+      - key: VITE_FIREBASE_AUTH_DOMAIN
+        sync: false
+      - key: VITE_FIREBASE_PROJECT_ID
+        sync: false
+      - key: VITE_FIREBASE_STORAGE_BUCKET
+        sync: false
+      - key: VITE_FIREBASE_MESSAGING_SENDER_ID
+        sync: false
+      - key: VITE_FIREBASE_APP_ID
+        sync: false
+      - key: VITE_API_BASE_URL
+        sync: false
+      - key: VITE_ENABLE_APP_CHECK
+        value: "false"
+      - key: VITE_FIREBASE_APP_CHECK_SITE_KEY
+        sync: false

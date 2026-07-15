@@ -1,0 +1,40 @@
+{
+  "name": "censorx-institute-portal-server",
+  "private": true,
+  "version": "1.0.0",
+  "main": "dist/server.js",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src --ext .ts",
+    "test": "vitest run",
+    "bootstrap:superadmin": "tsx scripts/bootstrapSuperAdmin.ts",
+    "repro:duplicate-school-email": "tsx scripts/reproDuplicateSchoolEmail.ts",
+    "test:smtp": "tsx scripts/testSmtp.ts"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "exceljs": "^4.4.0",
+    "express": "^4.19.2",
+    "express-rate-limit": "^7.4.0",
+    "firebase-admin": "^12.3.1",
+    "helmet": "^7.1.0",
+    "nodemailer": "^9.0.3",
+    "pino": "^9.3.2",
+    "pino-http": "^10.2.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.14.15",
+    "eslint": "^8.57.0",
+    "pino-pretty": "^13.1.3",
+    "tsx": "^4.16.5",
+    "typescript": "^5.5.4",
+    "vitest": "^2.0.5"
+  }
+}

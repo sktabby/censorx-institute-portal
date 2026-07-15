@@ -1,0 +1,22 @@
+{
+  "name": "censorx-institute-portal",
+  "private": true,
+  "version": "1.0.0",
+  "description": "CensorX.ai Institute Portal - monorepo (client + server)",
+  "workspaces": [
+    "client",
+    "server"
+  ],
+  "scripts": {
+    "dev:client": "npm --workspace client run dev",
+    "dev:server": "npm --workspace server run dev",
+    "build:client": "npm --workspace client run build",
+    "build:server": "npm --workspace server run build",
+    "lint:client": "npm --workspace client run lint",
+    "lint:server": "npm --workspace server run lint",
+    "test:server": "npm --workspace server run test",
+    "typecheck:client": "npm --workspace client run typecheck",
+    "typecheck:server": "npm --workspace server run typecheck",
+    "bootstrap:superadmin": "npm --workspace server run bootstrap:superadmin"
+  }
+}

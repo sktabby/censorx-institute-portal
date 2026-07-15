@@ -1,0 +1,24 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  background-color: #05070d;
+  background-image: radial-gradient(circle at 20% 0%, rgba(34, 211, 238, 0.06), transparent 40%),
+    radial-gradient(circle at 80% 20%, rgba(52, 211, 153, 0.05), transparent 40%);
+}
+
+.glass-card {
+  @apply bg-cx-panel/70 border border-cx-border rounded-xl2 backdrop-blur-sm;
+}
+
+.badge {
+  @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border;
+}
+
+button,
+input,
+select,
+textarea {
+  min-height: 44px;
+}
