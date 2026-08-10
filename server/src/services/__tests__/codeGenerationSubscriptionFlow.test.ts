@@ -181,6 +181,10 @@ vi.mock("../../config/firebaseAdmin", () => ({
 
 vi.mock("../emailService", () => ({
   sendSchoolAdminWelcomeEmail: vi.fn(),
+  // Without this the service's try/catch swallowed a "missing export" error and
+  // the code-email path was never actually exercised.
+  sendActivationCodesEmail: vi.fn(),
+  sendBatchRenewalEmail: vi.fn(),
 }));
 
 vi.mock("../../repositories/auditLogRepository", () => ({

@@ -4,17 +4,22 @@ import { collection } from "../repositories/firestoreRepository";
 import {
   getActiveSubscription,
   getEffectiveActivationCodeStatus,
+  getEffectiveLicenseStatus,
   getEffectiveOrganizationStatus,
   getOrganization,
+  getOrganizationSeatUsage,
   listOrganizationLicenses,
   withEffectiveSubscriptionStatus,
 } from "../repositories/organizationRepository";
+import { buildSeatUsage, mergeSeatUsage, EMPTY_SEAT_USAGE } from "../utils/seatAccounting";
 import type { PortalRequest } from "../middleware/requirePortalUser";
 import { ApiError } from "../middleware/errorHandler";
 import { ok } from "../utils/apiResponse";
 import * as organizationService from "../services/organizationService";
 import * as codeGenerationService from "../services/codeGenerationService";
+import * as batchService from "../services/batchService";
 import type {
+  LicenseStatus,
   Organization,
   OrganizationActivationCode,
   OrganizationLicense,
@@ -62,9 +67,10 @@ function timestampMillis(value: unknown): number {
 }
 
 export async function getDashboard(_req: PortalRequest, res: Response) {
-  const [orgsSnap, subscriptionsSnap] = await Promise.all([
+  const [orgsSnap, subscriptionsSnap, licensesSnap] = await Promise.all([
     collection(Collections.organizations).get(),
     collection(Collections.organizationSubscriptions).get(),
+    collection(Collections.organizationLicenses).get(),
   ]);
   const now = new Date();
   const subscriptionsById = buildEffectiveSubscriptionMap(subscriptionsSnap.docs, now);
@@ -72,20 +78,40 @@ export async function getDashboard(_req: PortalRequest, res: Response) {
     .map((d) => buildOrganizationRow(d.data() as Organization, subscriptionsById, 0, now))
     .filter((org) => org.organizationStatus !== "ARCHIVED");
 
-  const totalSchools = orgs.length;
-  const activeSchools = orgs.filter((o) => o.status === "ACTIVE").length;
-  const expiredSchools = orgs.filter((o) => o.status === "EXPIRED").length;
-  const totalSeats = orgs.reduce((sum, o) => sum + (o.purchasedSeats ?? 0), 0);
-  const activatedSeats = orgs.reduce((sum, o) => sum + (o.activatedSeats ?? 0), 0);
+  const visibleOrgIds = new Set(orgs.map((org) => org.organizationId));
+  const statusesByOrg = new Map<string, LicenseStatus[]>();
+  licensesSnap.docs.forEach((doc) => {
+    const license = doc.data() as OrganizationLicense;
+    if (!visibleOrgIds.has(license.organizationId)) return;
+    const status = getEffectiveLicenseStatus(license, subscriptionsById.get(license.subscriptionId), now);
+    const bucket = statusesByOrg.get(license.organizationId);
+    if (bucket) bucket.push(status);
+    else statusesByOrg.set(license.organizationId, [status]);
+  });
+
+  // Seat totals are derived from licenses, not from the stored purchasedSeats /
+  // activatedSeats counters, so expired seats stop being counted as in-use.
+  const seatUsage = orgs.reduce(
+    (acc, org) =>
+      mergeSeatUsage(
+        acc,
+        buildSeatUsage({
+          effectiveStatuses: statusesByOrg.get(org.organizationId) ?? [],
+          seatLimit: (org.currentSubscriptionId ? subscriptionsById.get(org.currentSubscriptionId)?.seatLimit : 0) ?? 0,
+        })
+      ),
+    EMPTY_SEAT_USAGE
+  );
 
   return ok(res, {
-    totalSchools,
-    activeSchools,
-    expiredSchools,
-    totalStudentSeats: totalSeats,
-    activatedStudents: activatedSeats,
-    totalStudentsJoined: activatedSeats,
-    availableSeats: totalSeats - activatedSeats,
+    totalSchools: orgs.length,
+    activeSchools: orgs.filter((o) => o.status === "ACTIVE").length,
+    expiredSchools: orgs.filter((o) => o.status === "EXPIRED").length,
+    totalStudentSeats: seatUsage.totalSeats,
+    activatedStudents: seatUsage.activatedSeats,
+    totalStudentsJoined: seatUsage.activatedSeats,
+    availableSeats: seatUsage.availableSeats,
+    seatUsage,
   });
 }
 
@@ -155,12 +181,19 @@ export async function getOrganizationDetail(req: PortalRequest, res: Response) {
   const org = await getOrganization(req.params.organizationId);
   if (!org) throw new ApiError(404, "ORG_NOT_FOUND", "School not found.");
   const currentSubscription = await getActiveSubscription(req.params.organizationId);
+  const seatUsage = await getOrganizationSeatUsage(req.params.organizationId, currentSubscription);
+
   return ok(res, {
     ...org,
     organizationStatus: org.status,
     subscriptionStatus: currentSubscription?.status ?? "NONE",
     status: getEffectiveOrganizationStatus(org, currentSubscription),
     currentSubscription,
+    // Authoritative seat numbers. Clients render these and must not recompute
+    // capacity from purchasedSeats/activatedSeats.
+    seatUsage,
+    purchasedSeats: seatUsage.totalSeats,
+    activatedSeats: seatUsage.activatedSeats,
   });
 }
 
@@ -177,6 +210,34 @@ export async function reactivateOrganization(req: PortalRequest, res: Response) 
 export async function renewOrganization(req: PortalRequest, res: Response) {
   const result = await organizationService.renewSubscription(req.params.organizationId, req.body, req.portalUser!.uid);
   return ok(res, result);
+}
+
+export async function listOrganizationBatches(req: PortalRequest, res: Response) {
+  const batches = await batchService.listOrganizationBatches(req.params.organizationId);
+  return ok(res, batches);
+}
+
+export async function listSubscriptionHistory(req: PortalRequest, res: Response) {
+  const history = await batchService.listSubscriptionHistory(req.params.organizationId);
+  return ok(res, history);
+}
+
+export async function renewOrganizationBatches(req: PortalRequest, res: Response) {
+  const result = await organizationService.renewBatches(
+    req.params.organizationId,
+    req.body,
+    req.portalUser!.uid
+  );
+
+  // No plaintext codes are ever returned here: renewal allocates seats and
+  // time only. A newly allocated batch is generated from Create Codes.
+  const meta = result.allocatedBatch
+    ? {
+        warning: `Seats allocated for "${result.allocatedBatch.batchName}". Generate its codes in Create Codes when ready.`,
+      }
+    : {};
+
+  return ok(res, result, meta, 201);
 }
 
 export async function cancelOrganization(req: PortalRequest, res: Response) {

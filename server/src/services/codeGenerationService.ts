@@ -8,10 +8,12 @@ import {
   getActiveSubscription,
   getCurrentSubscription,
   getEffectiveActivationCodeStatus,
+  getOrganizationSeatUsage,
 } from "../repositories/organizationRepository";
 import { writeAuditLog } from "../repositories/auditLogRepository";
 import { ApiError } from "../middleware/errorHandler";
 import { hashFromRawCode } from "./codeCryptoService";
+import { findPendingBatch, markBatchGenerated } from "./batchService";
 import { planDurationToMs } from "../utils/planDuration";
 import { isSchoolNameConfirmationValid } from "../utils/deleteGuards";
 import { buildPlaintextCodesForMode, type PlaintextCodeEntry } from "../utils/codeGenerationModes";
@@ -207,14 +209,10 @@ function resolvePlanWindow(input: CreateCodesWithSubscriptionInput) {
   return { startAt, expiresAt: new Date(startAt.getTime() + durationMs) };
 }
 
-async function countUnusedCodes(organizationId: string) {
-  const existingCodesSnap = await db
-    .collection(Collections.organizationActivationCodes)
-    .where("organizationId", "==", organizationId)
-    .where("status", "==", "UNUSED")
-    .get();
-  return existingCodesSnap.size;
-}
+// Unused-code counting now lives in getOrganizationSeatUsage, which derives it
+// from EFFECTIVE license status. The previous local countUnusedCodes() ran a raw
+// `where status == "UNUSED"` query, which also matched past-due codes that can
+// never be redeemed and so overcharged remaining capacity.
 
 /**
  * Uses an existing effective-active subscription when one exists. Only schools
@@ -257,8 +255,10 @@ export async function createSubscriptionAndGenerateCodes(
   const storedCurrentSubscription = activeSubscription
     ? await getCurrentSubscription(input.organizationId, { effectiveStatus: false })
     : null;
-  const existingUnusedCodes = await countUnusedCodes(input.organizationId);
-  const seatLimit = org.activatedSeats + existingUnusedCodes + input.numberOfCodes;
+  // Seats already committed are derived from effective license status, so a
+  // school whose previous term lapsed is not billed for those seats again.
+  const seatUsage = await getOrganizationSeatUsage(input.organizationId, activeSubscription);
+  const seatLimit = seatUsage.activatedSeats + seatUsage.unusedCodes + input.numberOfCodes;
   const subscriptionId = newDocId(Collections.organizationSubscriptions);
 
   await db.runTransaction(async (tx) => {
@@ -363,8 +363,23 @@ export async function generateCodesForOrganization(
     throw new ApiError(409, "DUPLICATE_REQUEST", "This code generation request has already been processed.");
   }
 
-  const existingUnusedCodes = await countUnusedCodes(input.organizationId);
-  const remainingCapacity = subscription.seatLimit - org.activatedSeats - existingUnusedCodes;
+  const batchName = input.batchName ?? `batch-${Date.now()}`;
+
+  // Fulfilling a seat-only allocation from Renew School: the batch was already
+  // named and sized there, so generation must not exceed what was reserved.
+  // Checked before the general capacity gate so the more specific, actionable
+  // message wins when both would reject.
+  const pendingBatch = input.batchName ? await findPendingBatch(input.organizationId, input.batchName) : null;
+  if (pendingBatch && input.numberOfCodes > pendingBatch.seatCount) {
+    throw new ApiError(
+      409,
+      "BATCH_ALLOCATION_EXCEEDED",
+      `Batch "${batchName}" has ${pendingBatch.seatCount} allocated seat(s); cannot generate ${input.numberOfCodes} codes.`
+    );
+  }
+
+  const seatUsage = await getOrganizationSeatUsage(input.organizationId, subscription);
+  const remainingCapacity = seatUsage.remainingCapacity;
 
   if (input.numberOfCodes <= 0) {
     throw new ApiError(400, "INVALID_QUANTITY", "Requested quantity is invalid.");
@@ -377,7 +392,6 @@ export async function generateCodesForOrganization(
     );
   }
 
-  const batchName = input.batchName ?? `batch-${Date.now()}`;
   const plainEntries = buildCodeEntries(input, org);
   const seenHashes = new Set<string>();
   const hashedEntries = plainEntries.map((entry) => {
@@ -427,6 +441,7 @@ export async function generateCodesForOrganization(
         licenseId,
         organizationId: input.organizationId,
         subscriptionId: input.subscriptionId,
+        batchName,
         status: "UNUSED",
         studentUid: null,
         studentIdentifier,
@@ -467,6 +482,11 @@ export async function generateCodesForOrganization(
       results[index].licenseId = licenseId;
     });
   });
+
+  // The allocation has now been fulfilled, so it stops showing as pending.
+  if (pendingBatch) {
+    await markBatchGenerated(input.organizationId, batchName);
+  }
 
   await writeAuditLog({
     actorUid,

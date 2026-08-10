@@ -2,6 +2,7 @@ import type { Response } from "express";
 import {
   getOrganization,
   getActiveSubscription,
+  getOrganizationSeatUsage,
   listOrganizationCodes,
   listOrganizationLicenses,
   subscriptions,
@@ -74,9 +75,10 @@ export async function getDashboard(req: PortalRequest, res: Response) {
   const org = await getOrganization(organizationId);
   if (!org) throw new ApiError(404, "ORG_NOT_FOUND", "School not found.");
   const subscription = await getActiveSubscription(organizationId);
-  const [codes, licenses] = await Promise.all([
+  const [codes, licenses, seatUsage] = await Promise.all([
     listOrganizationCodes(organizationId),
     listOrganizationLicenses(organizationId),
+    getOrganizationSeatUsage(organizationId, subscription),
   ]);
   const subscriptionStatus = subscription?.status ?? "NONE";
   const isSubscribed = subscriptionStatus === "ACTIVE";
@@ -111,13 +113,14 @@ export async function getDashboard(req: PortalRequest, res: Response) {
     startAt: subscription?.startAt ?? null,
     expiresAt: subscription?.expiresAt ?? null,
     seatLimit: subscription?.seatLimit ?? 0,
-    totalSeats: org.purchasedSeats,
-    totalStudentSeats: org.purchasedSeats,
-    activatedSeats: org.activatedSeats,
-    totalRedeemedStudents: org.activatedSeats,
-    availableSeats: org.purchasedSeats - org.activatedSeats,
+    totalSeats: seatUsage.totalSeats,
+    totalStudentSeats: seatUsage.totalSeats,
+    activatedSeats: seatUsage.activatedSeats,
+    totalRedeemedStudents: seatUsage.activatedSeats,
+    availableSeats: seatUsage.availableSeats,
     unusedCodes: codes.filter((c) => c.status === "UNUSED").length,
     revokedCodes: codes.filter((c) => c.status === "REVOKED").length,
+    seatUsage,
     recentActivations,
   });
 }
@@ -168,8 +171,9 @@ export async function getSubscription(req: PortalRequest, res: Response) {
   const organizationId = req.portalUser!.organizationId!;
   const org = await getOrganization(organizationId);
   if (!org) throw new ApiError(404, "ORG_NOT_FOUND", "School not found.");
-  const [subscription, historySnap] = await Promise.all([
-    getActiveSubscription(organizationId),
+  const subscription = await getActiveSubscription(organizationId);
+  const [seatUsage, historySnap] = await Promise.all([
+    getOrganizationSeatUsage(organizationId, subscription),
     subscriptions().where("organizationId", "==", organizationId).get(),
   ]);
   const history = historySnap.docs
@@ -183,9 +187,11 @@ export async function getSubscription(req: PortalRequest, res: Response) {
     status: subscription?.status ?? "NONE",
     startAt: subscription?.startAt ?? null,
     expiresAt: subscription?.expiresAt ?? null,
-    totalSeats: org.purchasedSeats,
-    activatedSeats: org.activatedSeats,
-    availableSeats: org.purchasedSeats - org.activatedSeats,
+    seatLimit: seatUsage.seatLimit,
+    totalSeats: seatUsage.totalSeats,
+    activatedSeats: seatUsage.activatedSeats,
+    availableSeats: seatUsage.availableSeats,
+    seatUsage,
     allowedDevicesPerStudent: org.allowedDevicesPerStudent,
     history,
   });

@@ -11,6 +11,7 @@ export const Collections = {
   organizationSubscriptions: "organizationSubscriptions",
   organizationLicenses: "organizationLicenses",
   organizationActivationCodes: "organizationActivationCodes",
+  organizationBatches: "organizationBatches",
   organizationMembers: "organizationMembers",
   userOrganizationEntitlements: "userOrganizationEntitlements",
   organizationAuditLogs: "organizationAuditLogs",

@@ -1,6 +1,7 @@
 import { createApp } from "./app";
 import { env } from "./config/env";
 import { logger } from "./config/logger";
+import { startExpirySweepJob } from "./jobs/expirySweepJob";
 import { ApiError } from "./middleware/errorHandler";
 
 process.on("unhandledRejection", (reason) => {
@@ -20,4 +21,5 @@ const app = createApp();
 
 app.listen(env.PORT, () => {
   logger.info(`CensorX Institute Portal API listening on port ${env.PORT} (${env.NODE_ENV})`);
+  startExpirySweepJob();
 });

@@ -31,6 +31,41 @@ export const extendSubscriptionSchema = z.object({
   newExpiresAt: z.string().datetime(),
 });
 
+/**
+ * Batch-wise renewal: renew any combination of existing batches in place,
+ * and/or allocate one brand-new batch. At least one of the two must be present.
+ *
+ * Seats and time only. There is deliberately no code-generation input here —
+ * a new batch reserves named, sized seats and inherits this renewal's own
+ * start/expiry; its codes are generated separately from Create Codes.
+ */
+export const renewBatchesSchema = z
+  .object({
+    batchNames: z.array(z.string().min(1).max(120)).max(500).default([]),
+    newBatch: z
+      .object({
+        batchName: z.string().trim().min(1).max(120),
+        seatCount: z.number().int().positive().max(100_000),
+      })
+      .optional(),
+    planDuration: planDurationEnum,
+    startAt: z.string().datetime(),
+    expiresAt: z.string().datetime(),
+    seatLimit: z.number().int().positive().optional(),
+    billingReference: z.string().max(200).optional(),
+    notes: z.string().max(2000).optional(),
+    idempotencyKey: z.string().min(8).max(200),
+  })
+  .superRefine((value, ctx) => {
+    if (value.batchNames.length === 0 && !value.newBatch) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["batchNames"],
+        message: "Select at least one batch to renew, or allocate a new batch.",
+      });
+    }
+  });
+
 export const increaseSeatsSchema = z.object({
   additionalSeats: z.number().int().positive().max(1_000_000),
 });

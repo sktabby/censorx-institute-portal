@@ -33,6 +33,17 @@ services:
         value: "false"
       - key: LOG_LEVEL
         value: info
+      - key: EXPIRY_SWEEP_ENABLED
+        value: "true"
+      # Cron runs in the server's local timezone; Render runs UTC.
+      # "45 21 * * *" = 21:45 UTC = 03:15 AM IST (Asia/Kolkata) the next day.
+      # IST is UTC+5:30 with no DST, so this is correct year-round.
+      # Do NOT change this to "15 3 * * *" — that would fire at 08:45 IST,
+      # during the school working day.
+      - key: EXPIRY_SWEEP_CRON
+        value: "45 21 * * *"
+      - key: EXPIRY_SWEEP_RUN_ON_BOOT
+        value: "false"
 
   # ---------------------------------------------------------------
   # Frontend (Vite static build) -> https://portal.censorx.in

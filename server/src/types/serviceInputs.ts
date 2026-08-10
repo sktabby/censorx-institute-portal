@@ -34,3 +34,30 @@ export interface CreateCodesWithSubscriptionInput extends Omit<GenerateCodesInpu
   startAt?: string;
   expiresAt?: string;
 }
+
+/**
+ * Seat-only allocation made as part of a batch-wise renewal. Deliberately has
+ * no code-generation fields: the batch is named and sized here, and its codes
+ * are generated later from Create Codes under the renewal's inherited window.
+ */
+export interface RenewBatchesNewBatchInput {
+  batchName: string;
+  seatCount: number;
+}
+
+export interface RenewBatchesInput {
+  /** Existing batches to renew in place. May be empty when only allocating a new batch. */
+  batchNames?: string[];
+  /** Optional seat-only allocation made alongside the renewal. */
+  newBatch?: RenewBatchesNewBatchInput;
+  planDuration: PlanDuration;
+  startAt: string;
+  expiresAt: string;
+  seatLimit?: number;
+  billingReference?: string;
+  notes?: string;
+  idempotencyKey: string;
+}
+
+// RenewBatchesResult lives in organizationService, where GenerateCodesResult is
+// already in scope — importing it here would create a module cycle.

@@ -69,6 +69,11 @@ export interface OrganizationLicense {
   licenseId: string;
   organizationId: string;
   subscriptionId: string;
+  /**
+   * Denormalized from the paired activation code so a license is
+   * self-describing. Null for licenses generated before batch tracking.
+   */
+  batchName: string | null;
   status: LicenseStatus;
   studentUid: string | null;
   studentIdentifier: string | null;
@@ -105,6 +110,40 @@ export interface OrganizationActivationCode {
   redeemedAt: FirebaseFirestore.Timestamp | null;
   replacedAt: FirebaseFirestore.Timestamp | null;
   replacedBy: string | null;
+}
+
+/** PENDING = seats allocated by a renewal, codes not generated yet. */
+export type BatchRecordStatus = "PENDING" | "GENERATED";
+
+/**
+ * A named, sized allocation of seats.
+ *
+ * Batches used to exist only implicitly, as the batchName stamped on activation
+ * codes. That cannot represent a batch with zero codes, which is exactly what
+ * seat-only allocation from Renew School produces — so the allocation is
+ * recorded here and the codes are generated against it later in Create Codes.
+ * Batches created before this collection existed still resolve from their
+ * codes, so both shapes are merged on read.
+ */
+export interface OrganizationBatch {
+  batchId: string;
+  organizationId: string;
+  batchName: string;
+  /** Subscription whose window this batch inherits. */
+  subscriptionId: string;
+  seatCount: number;
+  status: BatchRecordStatus;
+  startAt: FirebaseFirestore.Timestamp;
+  expiresAt: FirebaseFirestore.Timestamp;
+  createdAt: FirebaseFirestore.Timestamp;
+  createdBy: string;
+  updatedAt: FirebaseFirestore.Timestamp;
+  generatedAt: FirebaseFirestore.Timestamp | null;
+  /**
+   * Set when a later renewal moved this still-pending batch onto its window.
+   * Surfaced in the UI so the date change is never silent.
+   */
+  windowUpdatedAt: FirebaseFirestore.Timestamp | null;
 }
 
 export interface UserOrganizationEntitlement {

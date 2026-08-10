@@ -40,6 +40,35 @@ export async function sendSchoolAdminWelcomeEmail(input: { to: string; tempPassw
   });
 }
 
+/**
+ * Sent when existing batches are renewed in place. Deliberately carries no
+ * codes: renewal reuses the codes the school already holds, and re-sending
+ * them would widen their exposure for no reason.
+ */
+export async function sendBatchRenewalEmail(input: {
+  to: string;
+  schoolName: string;
+  batchNames: string[];
+  expiresAt: Date;
+  studentsReactivated: number;
+}) {
+  assertSmtpConfigured();
+
+  const expiryLabel = input.expiresAt.toISOString().slice(0, 10);
+  const transporter = createTransporter();
+  await transporter.sendMail({
+    from: env.SMTP_FROM_EMAIL,
+    to: input.to,
+    subject: `CensorX Subscription Renewed — ${input.schoolName}`,
+    text:
+      `The following code sheets for ${input.schoolName} have been renewed until ${expiryLabel}:\n\n` +
+      `${input.batchNames.map((name) => `  • ${name}`).join("\n")}\n\n` +
+      "The existing activation codes remain valid — students do not need new codes. " +
+      `${input.studentsReactivated} student licence(s) were restored to active.\n\n` +
+      "Students who were locked out can simply reopen the app.",
+  });
+}
+
 export async function sendActivationCodesEmail(input: {
   to: string;
   schoolName: string;

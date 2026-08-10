@@ -46,6 +46,30 @@ const envSchema = z
 
     TRUST_PROXY: z.string().default("1"),
     LOG_LEVEL: z.string().default("info"),
+
+    /**
+     * Expiry sweep: materialises EXPIRED onto past-due subscriptions,
+     * licenses and codes. Read-time projection remains the fallback, so
+     * disabling the sweep degrades data freshness but never correctness.
+     */
+    EXPIRY_SWEEP_ENABLED: z
+      .string()
+      .default("true")
+      .transform((v) => v === "true"),
+    /**
+     * Cron is evaluated in the SERVER's local timezone, which on Render is UTC.
+     *
+     * Default "45 21 * * *" = 21:45 UTC = 03:15 AM IST (Asia/Kolkata) the NEXT
+     * day. IST is UTC+5:30 with no DST, so this holds year-round.
+     *
+     * Do NOT "correct" this to "15 3 * * *" — that reads as 3:15 AM but would
+     * actually fire at 08:45 IST, in the middle of the school working day.
+     */
+    EXPIRY_SWEEP_CRON: z.string().default("45 21 * * *"),
+    EXPIRY_SWEEP_RUN_ON_BOOT: z
+      .string()
+      .default("false")
+      .transform((v) => v === "true"),
   })
   .superRefine((val, ctx) => {
     const hasServiceAccountFile = !!val.GOOGLE_APPLICATION_CREDENTIALS;

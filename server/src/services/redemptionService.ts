@@ -1,7 +1,7 @@
 import { Timestamp } from "firebase-admin/firestore";
 import { Collections } from "../config/collections";
 import { db } from "../repositories/firestoreRepository";
-import { getEffectiveLicenseStatus, getEffectiveSubscriptionStatus } from "../repositories/organizationRepository";
+import { getEffectiveLicenseStatus, subscriptionProvidesCoverage } from "../repositories/organizationRepository";
 import { writeAuditLog } from "../repositories/auditLogRepository";
 import { ApiError } from "../middleware/errorHandler";
 import { hashFromRawCode } from "./codeCryptoService";
@@ -67,7 +67,9 @@ export async function redeemActivationCode(input: RedeemInput, studentUid: strin
       const validationNow = new Date();
 
       // Server-time expiry check — never trust client-supplied dates.
-      if (getEffectiveSubscriptionStatus(subscription, validationNow) !== "ACTIVE") {
+      // Same coverage predicate as the entitlement path: a code sitting on a
+      // superseded-but-unexpired subscription must still redeem.
+      if (!subscriptionProvidesCoverage(subscription, validationNow)) {
         throw new ApiError(400, "REDEMPTION_FAILED", GENERIC_FAILURE_MESSAGE);
       }
       if (license.expiresAt.toMillis() <= validationNow.getTime()) {
@@ -187,7 +189,9 @@ export async function refreshEntitlement(uid: string) {
   const licenseSnap = await db.collection(Collections.organizationLicenses).doc(entitlement.licenseId).get();
 
   const subscription = subSnap.exists ? (subSnap.data() as OrganizationSubscription) : null;
-  const subscriptionActive = !!subscription && getEffectiveSubscriptionStatus(subscription) === "ACTIVE";
+  // Coverage, not the literal status string: a subscription superseded by a
+  // renewal (status RENEWED) is still within the window the school paid for.
+  const subscriptionActive = subscriptionProvidesCoverage(subscription);
   const license = licenseSnap.exists ? (licenseSnap.data() as OrganizationLicense) : null;
   const licenseActive = !!license && getEffectiveLicenseStatus(license, subscription) === "ACTIVE";
 

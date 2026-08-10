@@ -45,6 +45,13 @@ vi.mock("../../controllers/schoolController", () => ({
   getSubscription: (_req: any, res: any) => res.json({ success: true, data: {}, meta: {} }),
 }));
 
+/**
+ * This test only exercises the school routes, but building the app also wires
+ * the admin router. Every admin handler is stubbed explicitly — importing the
+ * real controller would pull in config/firebaseAdmin, which initialises the
+ * Admin SDK at module load and would couple this route-access test to Firebase.
+ * Adding an admin endpoint means adding it here too.
+ */
 vi.mock("../../controllers/adminController", () => ({
   getDashboard: vi.fn(),
   listOrganizations: vi.fn(),
@@ -65,6 +72,9 @@ vi.mock("../../controllers/adminController", () => ({
   replaceLicense: vi.fn(),
   deleteBatch: vi.fn(),
   listStudents: vi.fn(),
+  listOrganizationBatches: vi.fn(),
+  renewOrganizationBatches: vi.fn(),
+  listSubscriptionHistory: vi.fn(),
 }));
 
 vi.mock("../../controllers/publicController", () => ({

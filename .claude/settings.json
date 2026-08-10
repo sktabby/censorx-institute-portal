@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(timeout 180 node \"C:/Users/SHAIKH~1/AppData/Local/Temp/claude/c--Users-Shaikh-Tabish-Desktop-censorx-institute-portal/4eb5bf35-b9d7-4ddc-ab5f-6c2e37d95cad/scratchpad/scan-affected.js\")",
+      "Bash(timeout 180 node \"C:/Users/SHAIKH~1/AppData/Local/Temp/claude/c--Users-Shaikh-Tabish-Desktop-censorx-institute-portal/4eb5bf35-b9d7-4ddc-ab5f-6c2e37d95cad/scratchpad/repair-entitlements.js\")",
+      "Bash(timeout 180 npx tsx scripts/reconcileActivatedSeats.ts)",
+      "Bash(timeout 180 npx tsx scripts/reconcileActivatedSeats.ts --apply)",
+      "Bash(timeout 180 node \"C:/Users/SHAIKH~1/AppData/Local/Temp/claude/c--Users-Shaikh-Tabish-Desktop-censorx-institute-portal/4eb5bf35-b9d7-4ddc-ab5f-6c2e37d95cad/scratchpad/diagnose.js\" f8tTTb2msoC9X5dMkbf6)",
+      "Bash(timeout 120 node -e ' *)",
+      "Bash(timeout 180 node \"C:/Users/SHAIKH~1/AppData/Local/Temp/claude/c--Users-Shaikh-Tabish-Desktop-censorx-institute-portal/4eb5bf35-b9d7-4ddc-ab5f-6c2e37d95cad/scratchpad/diagnose-403.js\")",
+      "Bash(timeout 180 node \"C:/Users/SHAIKH~1/AppData/Local/Temp/claude/c--Users-Shaikh-Tabish-Desktop-censorx-institute-portal/4eb5bf35-b9d7-4ddc-ab5f-6c2e37d95cad/scratchpad/diagnose-aug8.js\")",
+      "Bash(timeout 180 node \"C:/Users/SHAIKH~1/AppData/Local/Temp/claude/c--Users-Shaikh-Tabish-Desktop-censorx-institute-portal/4eb5bf35-b9d7-4ddc-ab5f-6c2e37d95cad/scratchpad/diagnose-batches.js\")"
+    ]
+  }
+}

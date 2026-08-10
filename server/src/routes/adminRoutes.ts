@@ -13,6 +13,7 @@ import {
   licenseIdParamSchema,
   organizationListQuerySchema,
   renewSubscriptionSchema,
+  renewBatchesSchema,
   extendSubscriptionSchema,
   increaseSeatsSchema,
   generateCodesSchema,
@@ -42,6 +43,22 @@ router.post(
   validateParams(orgIdParamSchema),
   validateBody(renewSubscriptionSchema),
   asyncHandler(adminController.renewOrganization)
+);
+router.get(
+  "/admin/organizations/:organizationId/subscriptions",
+  validateParams(orgIdParamSchema),
+  asyncHandler(adminController.listSubscriptionHistory)
+);
+router.get(
+  "/admin/organizations/:organizationId/batches",
+  validateParams(orgIdParamSchema),
+  asyncHandler(adminController.listOrganizationBatches)
+);
+router.post(
+  "/admin/organizations/:organizationId/batches/renew",
+  validateParams(orgIdParamSchema),
+  validateBody(renewBatchesSchema),
+  asyncHandler(adminController.renewOrganizationBatches)
 );
 router.post(
   "/admin/organizations/:organizationId/extend",

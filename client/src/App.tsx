@@ -11,6 +11,7 @@ import AdminDashboard from "./pages/admin/AdminDashboard";
 import SchoolsList from "./pages/admin/SchoolsList";
 import CreateSchool from "./pages/admin/CreateSchool";
 import SchoolDetail from "./pages/admin/SchoolDetail";
+import SchoolHistory from "./pages/admin/SchoolHistory";
 import CodesManagement from "./pages/admin/CodesManagement";
 import CreateCodes from "./pages/admin/CreateCodes";
 import RenewSchool from "./pages/admin/RenewSchool";
@@ -40,6 +41,7 @@ export default function App() {
         <Route path="/admin/schools" element={<SchoolsList />} />
         <Route path="/admin/schools/create" element={<CreateSchool />} />
         <Route path="/admin/schools/:organizationId" element={<SchoolDetail />} />
+        <Route path="/admin/schools/:organizationId/history" element={<SchoolHistory />} />
         <Route path="/admin/codes" element={<CodesManagement />} />
         <Route path="/admin/codes/create" element={<CreateCodes />} />
         <Route path="/admin/subscriptions" element={<RenewSchool />} />

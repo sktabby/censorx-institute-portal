@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import PortalLayout from "../../layouts/PortalLayout";
 import StatusBadge from "../../components/StatusBadge";
 import DataTable from "../../components/DataTable";
@@ -8,6 +8,18 @@ import { adminNavItems } from "./navItems";
 
 const licenseStatuses = ["ACTIVE", "UNUSED", "REVOKED", "REPLACED", "EXPIRED", "DELETED"] as const;
 
+/** Mirrors SeatUsage in server/src/utils/seatAccounting.ts. */
+interface SeatUsage {
+  totalSeats: number;
+  activatedSeats: number;
+  unusedCodes: number;
+  expiredSeats: number;
+  revokedSeats: number;
+  seatLimit: number;
+  remainingCapacity: number;
+  availableSeats: number;
+}
+
 interface OrgDetail {
   organizationId: string;
   name: string;
@@ -15,8 +27,7 @@ interface OrgDetail {
   status: string;
   organizationStatus: string;
   subscriptionStatus: string;
-  purchasedSeats: number;
-  activatedSeats: number;
+  seatUsage: SeatUsage;
   allowedDevicesPerStudent: number;
 }
 
@@ -98,6 +109,12 @@ export default function SchoolDetail() {
         </div>
         <div className="flex items-center gap-2">
           <StatusBadge status={org.status} />
+          <Link
+            to={`/admin/schools/${organizationId}/history`}
+            className="px-4 py-2 rounded-lg border border-cx-border text-sm hover:border-cx-accent/50"
+          >
+            Subscription History
+          </Link>
           <button
             onClick={toggleSuspend}
             disabled={busy}
@@ -110,10 +127,13 @@ export default function SchoolDetail() {
 
       {message && <p className="text-sm text-cx-accent2 mb-4">{message}</p>}
 
-      <div className="grid sm:grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-        <StatCard label="Total seats" value={org.purchasedSeats} />
-        <StatCard label="Activated" value={org.activatedSeats} />
-        <StatCard label="Available" value={org.purchasedSeats - org.activatedSeats} />
+      {/* Seat numbers come straight from the server's seat-accounting module —
+          no arithmetic here, so admin and school views cannot disagree. */}
+      <div className="grid sm:grid-cols-2 md:grid-cols-5 gap-4 mb-8">
+        <StatCard label="Total seats" value={org.seatUsage.totalSeats} />
+        <StatCard label="Activated" value={org.seatUsage.activatedSeats} />
+        <StatCard label="Unused codes" value={org.seatUsage.unusedCodes} />
+        <StatCard label="Remaining capacity" value={org.seatUsage.remainingCapacity} />
         <StatCard label="Devices / student" value={org.allowedDevicesPerStudent} />
       </div>
 
