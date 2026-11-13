@@ -61,6 +61,8 @@ vi.mock("../../controllers/adminController", () => ({
   suspendOrganization: vi.fn(),
   reactivateOrganization: vi.fn(),
   cancelOrganization: vi.fn(),
+  getOrganizationBill: vi.fn(),
+  sendOrganizationBill: vi.fn(),
   renewOrganization: vi.fn(),
   extendOrganization: vi.fn(),
   increaseSeats: vi.fn(),

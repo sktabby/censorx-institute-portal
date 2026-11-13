@@ -1,5 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
+import { HelpCircle, Plus, X } from "lucide-react";
 import PortalLayout from "../../layouts/PortalLayout";
+import PageHeader from "../../components/PageHeader";
+import Step from "../../components/Step";
+import Select from "../../components/Select";
+import SearchBox from "../../components/SearchBox";
 import StatusBadge from "../../components/StatusBadge";
 import { apiClient, type ApiResponse, type PagedResult } from "../../api/client";
 import { adminNavItems } from "./navItems";
@@ -71,15 +77,27 @@ interface RenewBatchesResponse {
   studentsReactivated: number;
   renewalEmail?: { sent: boolean; to: string; warning?: string };
   allocatedBatch: { batchId: string; batchName: string; seatCount: number } | null;
+  /** Every class added by this renewal. Older servers only send `allocatedBatch`. */
+  allocatedBatches?: Array<{ batchId: string; batchName: string; seatCount: number }>;
   repointedBatches: string[];
   seatLimit: number;
 }
+
+/** One row of the "Add a new class" list. */
+interface NewClass {
+  id: number;
+  name: string;
+  seats: number;
+}
+
+const FIRST_CLASS: NewClass = { id: 1, name: "", seats: 10 };
+const MAX_NEW_CLASSES = 50;
 
 type BatchFilter = "RENEWABLE" | "NON_RENEWABLE" | "ALL";
 
 const BATCH_FILTERS: Array<{ value: BatchFilter; label: string }> = [
   { value: "RENEWABLE", label: "Renewable" },
-  { value: "NON_RENEWABLE", label: "Non-renewable" },
+  { value: "NON_RENEWABLE", label: "Not renewable" },
   { value: "ALL", label: "All" },
 ];
 
@@ -108,8 +126,8 @@ export default function RenewSchool() {
   const [batchFilter, setBatchFilter] = useState<BatchFilter>("RENEWABLE");
 
   const [allocateNewBatch, setAllocateNewBatch] = useState(false);
-  const [newBatchName, setNewBatchName] = useState("");
-  const [newBatchSeats, setNewBatchSeats] = useState(10);
+  const [newClasses, setNewClasses] = useState<NewClass[]>([FIRST_CLASS]);
+  const nextClassId = useRef(2);
 
   const [message, setMessage] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
@@ -154,10 +172,16 @@ export default function RenewSchool() {
   const retainedSeats = batches
     .filter((batch) => !selectedBatches.includes(batch.batchName) && !batch.isPending)
     .reduce((sum, batch) => sum + batch.unusedCount + batch.redeemedCount, 0);
-  const projectedSeats = selectedSeatCount + retainedSeats + (allocateNewBatch ? newBatchSeats : 0);
-  const trimmedBatchName = newBatchName.trim();
+  // Classes still waiting for their codes keep their seats.
+  const waitingSeats = batches
+    .filter((batch) => batch.isPending && !selectedBatches.includes(batch.batchName))
+    .reduce((sum, batch) => sum + batch.pendingSeats, 0);
+  const newSeatTotal = allocateNewBatch ? newClasses.reduce((sum, item) => sum + (Number(item.seats) || 0), 0) : 0;
+  const projectedSeats = selectedSeatCount + retainedSeats + waitingSeats + newSeatTotal;
+  const newClassNames = newClasses.map((item) => item.name.trim()).filter(Boolean);
   const canSubmit =
-    (selectedBatches.length > 0 || allocateNewBatch) && (!allocateNewBatch || trimmedBatchName.length > 0);
+    (selectedBatches.length > 0 || allocateNewBatch) &&
+    (!allocateNewBatch || newClasses.every((item) => item.name.trim().length > 0));
 
   function resetForm() {
     setDetail(null);
@@ -166,8 +190,8 @@ export default function RenewSchool() {
     setBatchSearch("");
     setBatchFilter("RENEWABLE");
     setAllocateNewBatch(false);
-    setNewBatchName("");
-    setNewBatchSeats(10);
+    setNewClasses([FIRST_CLASS]);
+    nextClassId.current = 2;
     setMessage(null);
     setWarning(null);
     setError(null);
@@ -232,18 +256,32 @@ export default function RenewSchool() {
     });
   }
 
+  function addClass() {
+    setNewClasses((current) =>
+      current.length >= MAX_NEW_CLASSES ? current : [...current, { id: nextClassId.current++, name: "", seats: 10 }]
+    );
+  }
+
+  function removeClass(id: number) {
+    setNewClasses((current) => (current.length > 1 ? current.filter((item) => item.id !== id) : current));
+  }
+
+  function updateClass(id: number, patch: Partial<Omit<NewClass, "id">>) {
+    setNewClasses((current) => current.map((item) => (item.id === id ? { ...item, ...patch } : item)));
+  }
+
   async function cancelPlan() {
     if (!selectedOrg) return;
-    if (!window.confirm("Cancel the current subscription for this school?")) return;
+    if (!window.confirm("Cancel this school's plan?")) return;
     setBusy(true);
     setError(null);
     setMessage(null);
     try {
       await apiClient.post(`/admin/organizations/${selectedOrg}/cancel`);
-      setMessage("Subscription cancelled.");
+      setMessage("Plan cancelled.");
       await refreshSchool();
     } catch (err: any) {
-      setError(err?.response?.data?.error?.message ?? "Failed to cancel subscription.");
+      setError(err?.response?.data?.error?.message ?? "Failed to cancel the plan.");
     } finally {
       setBusy(false);
     }
@@ -256,25 +294,34 @@ export default function RenewSchool() {
     setWarning(null);
 
     if (!canSubmit) {
-      setError("Select at least one code sheet to renew, or allocate a new batch.");
+      setError("Select at least one sheet to renew, or add a new class.");
       return;
     }
     if (!startAt || !expiresAt) {
-      setError("Start and expiry dates are required.");
+      setError("Start and end dates are required.");
       return;
     }
     if (allocateNewBatch) {
-      if (!trimmedBatchName) {
-        setError("Enter a name for the new batch.");
-        return;
-      }
-      if (batches.some((batch) => batch.batchName.toLowerCase() === trimmedBatchName.toLowerCase())) {
-        setError(`A batch named "${trimmedBatchName}" already exists for this school.`);
-        return;
-      }
-      if (newBatchSeats <= 0) {
-        setError("Enter a positive number of seats for the new batch.");
-        return;
+      const seen = new Set<string>();
+      for (const item of newClasses) {
+        const name = item.name.trim();
+        if (!name) {
+          setError("Enter a name for every new class.");
+          return;
+        }
+        if (batches.some((batch) => batch.batchName.toLowerCase() === name.toLowerCase())) {
+          setError(`A sheet named "${name}" already exists for this school.`);
+          return;
+        }
+        if (seen.has(name.toLowerCase())) {
+          setError(`"${name}" is used more than once. Each class needs its own name.`);
+          return;
+        }
+        seen.add(name.toLowerCase());
+        if (!Number.isInteger(item.seats) || item.seats <= 0) {
+          setError(`Enter a whole number of seats above 0 for "${name}".`);
+          return;
+        }
       }
     }
 
@@ -284,7 +331,9 @@ export default function RenewSchool() {
         `/admin/organizations/${selectedOrg}/batches/renew`,
         {
           batchNames: selectedBatches,
-          newBatch: allocateNewBatch ? { batchName: trimmedBatchName, seatCount: newBatchSeats } : undefined,
+          newBatches: allocateNewBatch
+            ? newClasses.map((item) => ({ batchName: item.name.trim(), seatCount: item.seats }))
+            : undefined,
           planDuration,
           startAt: new Date(startAt).toISOString(),
           expiresAt: new Date(expiresAt).toISOString(),
@@ -303,17 +352,22 @@ export default function RenewSchool() {
 
       if (result.renewedBatches.length > 0) {
         notes.push(
-          `Renewed ${result.renewedBatches.length} sheet(s) — ${result.licensesRestored} licence(s) extended, ` +
-            `${result.studentsReactivated} student(s) reactivated. Existing codes stay valid.`
+          `Renewed ${result.renewedBatches.length} sheet(s). ${result.licensesRestored} code(s) were extended and ` +
+            `${result.studentsReactivated} student(s) can use the app again. The same codes still work.`
         );
-        if (result.renewalEmail?.sent) notes.push(`Renewal notice emailed to ${result.renewalEmail.to}.`);
+        if (result.renewalEmail?.sent) notes.push(`A renewal notice was emailed to ${result.renewalEmail.to}.`);
         else if (result.renewalEmail?.warning) warnings.push(result.renewalEmail.warning);
       }
 
-      if (result.allocatedBatch) {
+      const added = result.allocatedBatches ?? (result.allocatedBatch ? [result.allocatedBatch] : []);
+      if (added.length === 1) {
         notes.push(
-          `Allocated ${result.allocatedBatch.seatCount} seat(s) in batch "${result.allocatedBatch.batchName}". ` +
-            `No codes generated — generate them in Create Codes when ready.`
+          `Added ${added[0].seatCount} seat(s) as "${added[0].batchName}". Next, make its codes in Create Codes.`
+        );
+      } else if (added.length > 1) {
+        notes.push(
+          `Added ${added.length} classes (${added.reduce((sum, item) => sum + item.seatCount, 0)} seats): ` +
+            `${added.map((item) => item.batchName).join(", ")}. Next, make the codes for each class in Create Codes.`
         );
       }
 
@@ -321,15 +375,16 @@ export default function RenewSchool() {
       // generation were moved onto this renewal's window.
       if (result.repointedBatches.length > 0) {
         warnings.push(
-          `Start/expiry dates updated on ${result.repointedBatches.length} batch(es) still awaiting code generation: ` +
-            `${result.repointedBatches.join(", ")}. Their codes will now be issued under this renewal's window.`
+          `The dates changed on ${result.repointedBatches.length} sheet(s) that were waiting for codes: ` +
+            `${result.repointedBatches.join(", ")}. Their codes will use these new dates.`
         );
       }
 
       setMessage(notes.join(" "));
       if (warnings.length) setWarning(warnings.join(" "));
       setAllocateNewBatch(false);
-      setNewBatchName("");
+      setNewClasses([FIRST_CLASS]);
+      nextClassId.current = 2;
       await refreshSchool();
     } catch (err: any) {
       setError(err?.response?.data?.error?.message ?? "Failed to renew.");
@@ -343,231 +398,325 @@ export default function RenewSchool() {
 
   return (
     <PortalLayout items={adminNavItems}>
-      <h1 className="text-2xl font-semibold mb-6">Renew School</h1>
+      <PageHeader
+        title="Renew School"
+        description="Renew class sheets, or add seats for a new class."
+        action={
+          <Link to="/admin/guide" className="cx-link inline-flex min-h-11 items-center gap-1.5 text-sm">
+            <HelpCircle size={16} aria-hidden="true" />
+            How it works
+          </Link>
+        }
+      />
 
-      <div className="glass-card p-6 max-w-4xl space-y-4 mb-6">
-        <div>
-          <label className="text-sm text-cx-muted">School</label>
-          <select
+      <div className="mx-auto w-full max-w-3xl space-y-4">
+        {/* Step 1: school */}
+        <Step number={1} title="Choose the school" hint="Pick the school you want to renew or add seats for.">
+          <label htmlFor="renew-school" className="sr-only">
+            School
+          </label>
+          <Select
+            id="renew-school"
             value={selectedOrg}
             onChange={(e) => setSelectedOrg(e.target.value)}
-            className="w-full mt-1 px-3 py-2 rounded-lg bg-white/5 border border-cx-border text-sm"
+            className="cx-input w-full"
           >
-            <option value="" className="bg-cx-panel">Select a school</option>
+            <option value="">Select a school</option>
             {orgs.map((org) => (
-              <option key={org.organizationId} value={org.organizationId} className="bg-cx-panel">{org.name}</option>
+              <option key={org.organizationId} value={org.organizationId}>{org.name}</option>
             ))}
-          </select>
-        </div>
+          </Select>
 
-        {detail?.currentSubscription && (
-          <div className="grid sm:grid-cols-4 gap-3 text-sm">
-            <PlanField label="Plan" value={detail.currentSubscription.planDuration} />
-            <div>
-              <div className="text-xs text-cx-muted mb-1">Status</div>
-              <StatusBadge status={detail.currentSubscription.status} />
+          {selectedOrg && detail?.currentSubscription && (
+            <div className="mt-4 grid grid-cols-2 gap-4 rounded-xl border border-cx-border bg-cx-tint/50 p-4 sm:grid-cols-4">
+              <PlanField label="Plan" value={detail.currentSubscription.planDuration.replace(/_/g, " ")} />
+              <div>
+                <div className="text-[11px] font-medium uppercase tracking-wider text-cx-muted">Status</div>
+                <div className="mt-1">
+                  <StatusBadge status={detail.currentSubscription.status} />
+                </div>
+              </div>
+              <PlanField label="Total seats" value={String(detail.seatUsage.seatLimit)} />
+              <PlanField label="Ends" value={formatAnyDate(detail.currentSubscription.expiresAt)} />
             </div>
-            <PlanField label="Seat limit" value={String(detail.seatUsage.seatLimit)} />
-            <PlanField label="Expires" value={formatAnyDate(detail.currentSubscription.expiresAt)} />
-          </div>
-        )}
+          )}
+
+          {selectedOrg && detail && !detail.currentSubscription && (
+            <p className="mt-4 rounded-xl border border-cx-accent/20 bg-cx-tint px-3.5 py-2.5 text-sm text-cx-text">
+              This school has no plan yet. Add a new class below to start one.
+            </p>
+          )}
+        </Step>
 
         {selectedOrg && (
-          <button
-            onClick={cancelPlan}
-            disabled={busy || !detail?.currentSubscription}
-            className="px-4 py-2 rounded-lg border border-red-400/50 text-red-300 text-sm disabled:opacity-40"
-          >
-            Cancel Plan
-          </button>
-        )}
-      </div>
+          <>
+            {/* Step 2: what to do */}
+            <Step number={2} title="What do you want to do?" hint="You can renew sheets, add a new class, or do both.">
+              {/* A: renew existing sheets */}
+              <div className="space-y-4">
+                <div>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h3 className="font-semibold text-cx-heading">Renew existing class sheets</h3>
+                    <span className="text-xs text-cx-muted">{selectedBatches.length} selected</span>
+                  </div>
+                  <p className="mt-0.5 text-sm text-cx-muted">
+                    Use this when the plan has ended. The same codes keep working and students get access back.
+                  </p>
+                </div>
 
-      {selectedOrg && (
-        <>
-          <div className="glass-card p-6 max-w-4xl space-y-4 mb-6">
-            <div className="flex items-center justify-between flex-wrap gap-2">
-              <h2 className="text-lg font-medium">Renew existing code sheets</h2>
-              <span className="text-xs text-cx-muted">{selectedBatches.length} selected</span>
-            </div>
-            <p className="text-xs text-cx-muted">
-              Selected sheets keep their existing activation codes — the expiry date is extended in place and no new
-              codes are issued. Students who were locked out regain access.
-            </p>
+                <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+                  <SearchBox>
+                    <input
+                      aria-label="Search by sheet name"
+                      value={batchSearch}
+                      onChange={(e) => setBatchSearch(e.target.value)}
+                      placeholder="Search by sheet name"
+                      className="cx-input w-full pl-10"
+                    />
+                  </SearchBox>
+                  <div className="flex gap-1 overflow-x-auto rounded-full border border-cx-border bg-white p-1">
+                    {BATCH_FILTERS.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => setBatchFilter(option.value)}
+                        className={`min-h-11 flex-1 rounded-full px-3 py-1.5 text-xs whitespace-nowrap transition-colors sm:flex-none ${
+                          batchFilter === option.value
+                            ? "bg-cx-accent text-white font-medium"
+                            : "text-cx-muted hover:bg-cx-surface hover:text-cx-text"
+                        }`}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
 
-            <div className="grid sm:grid-cols-[1fr_auto] gap-3">
-              <input
-                value={batchSearch}
-                onChange={(e) => setBatchSearch(e.target.value)}
-                placeholder="Search by batch name"
-                className="px-3 py-2 rounded-lg bg-white/5 border border-cx-border text-sm"
-              />
-              <div className="flex gap-1 rounded-lg border border-cx-border p-1">
-                {BATCH_FILTERS.map((option) => (
-                  <button
-                    key={option.value}
-                    type="button"
-                    onClick={() => setBatchFilter(option.value)}
-                    className={`px-3 py-1.5 rounded-md text-xs whitespace-nowrap ${
-                      batchFilter === option.value ? "bg-cx-accent text-cx-bg font-medium" : "text-cx-muted"
-                    }`}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {visibleRenewable.length > 0 && (
-              <div className="flex items-center gap-3 text-xs">
-                <button onClick={selectAllVisibleRenewable} className="text-cx-accent hover:underline">
-                  Select all renewable ({visibleRenewable.length} shown)
-                </button>
-                <button onClick={clearVisibleSelection} className="text-cx-muted hover:underline">
-                  Clear shown
-                </button>
-              </div>
-            )}
-
-            {loadingBatches ? (
-              <p className="text-sm text-cx-muted">Loading code sheets...</p>
-            ) : batches.length === 0 ? (
-              <p className="text-sm text-cx-muted">This school has no code sheets yet.</p>
-            ) : visibleBatches.length === 0 ? (
-              <p className="text-sm text-cx-muted">No batches match this search or filter.</p>
-            ) : (
-              // Fixed height with internal scrolling: schools accumulate many
-              // batches and the list previously grew without bound.
-              <div className="max-h-80 overflow-y-auto pr-1 space-y-2 rounded-lg border border-cx-border/50 p-2">
-                {visibleBatches.map((batch) => {
-                  const renewable = isRenewable(batch);
-                  const checked = selectedBatches.includes(batch.batchName);
-                  return (
-                    <label
-                      key={batch.batchName}
-                      className={`flex items-start gap-3 p-3 rounded-lg border text-sm ${
-                        !renewable
-                          ? "border-cx-border opacity-60 cursor-not-allowed"
-                          : checked
-                            ? "border-cx-accent/60 bg-cx-accent/5 cursor-pointer"
-                            : "border-cx-border cursor-pointer hover:border-cx-accent/40"
-                      }`}
+                {visibleRenewable.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                    <button onClick={selectAllVisibleRenewable} className="cx-link rounded-lg px-1">
+                      Select all renewable ({visibleRenewable.length} shown)
+                    </button>
+                    <button
+                      onClick={clearVisibleSelection}
+                      className="rounded-lg px-1 text-cx-muted hover:text-cx-text hover:underline"
                     >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        disabled={!renewable}
-                        onChange={() => toggleBatch(batch.batchName)}
-                        className="mt-1"
-                      />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-medium truncate">{batch.batchName}</span>
-                          <StatusBadge status={batch.status} />
+                      Clear shown
+                    </button>
+                  </div>
+                )}
+
+                {loadingBatches ? (
+                  <p role="status" className="text-sm text-cx-muted">Loading code sheets...</p>
+                ) : batches.length === 0 ? (
+                  <p className="text-sm text-cx-muted">This school has no code sheets yet.</p>
+                ) : visibleBatches.length === 0 ? (
+                  <p className="text-sm text-cx-muted">No sheets match this search or filter.</p>
+                ) : (
+                  // Fixed height with internal scrolling: schools collect many sheets over time.
+                  <div className="max-h-80 space-y-2 overflow-y-auto rounded-xl border border-cx-border bg-cx-surface p-2">
+                    {visibleBatches.map((batch) => {
+                      const renewable = isRenewable(batch);
+                      const checked = selectedBatches.includes(batch.batchName);
+                      return (
+                        <label
+                          key={batch.batchName}
+                          className={`flex items-start gap-3 rounded-xl border p-3 text-sm ${
+                            !renewable
+                              ? "cursor-not-allowed border-cx-border bg-white opacity-60"
+                              : checked
+                                ? "cursor-pointer border-cx-accent bg-cx-tint"
+                                : "cursor-pointer border-cx-border bg-white hover:border-cx-accent/50"
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            disabled={!renewable}
+                            onChange={() => toggleBatch(batch.batchName)}
+                            className="mt-1"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="truncate font-medium">{batch.batchName}</span>
+                              <StatusBadge status={batch.status} />
+                            </div>
+                            <div className="mt-1 text-xs text-cx-muted">
+                              {batch.isPending
+                                ? `${batch.seatCount} seat(s) waiting for codes`
+                                : `${batch.codeCount} code(s) · ${batch.redeemedCount} joined · ${batch.unusedCount} unused · ${batch.expiredCount} expired${
+                                    batch.revokedCount > 0 ? ` · ${batch.revokedCount} revoked` : ""
+                                  }`}
+                            </div>
+                            <div className="text-xs text-cx-muted">Ends {formatIsoDate(batch.expiresAt)}</div>
+                            {!renewable && (
+                              <div className="mt-1 text-xs italic text-cx-muted">
+                                {batch.isPending
+                                  ? "Nothing to renew yet. Make its codes in Create Codes."
+                                  : "All codes were removed, so this sheet cannot be renewed."}
+                              </div>
+                            )}
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* B: add a new class */}
+              <div className="mt-6 space-y-4 border-t border-cx-line pt-6">
+                <div>
+                  <label className="flex cursor-pointer items-center gap-2 font-semibold text-cx-heading">
+                    <input
+                      type="checkbox"
+                      checked={allocateNewBatch}
+                      onChange={(e) => setAllocateNewBatch(e.target.checked)}
+                    />
+                    Add a new class or extra seats
+                  </label>
+                  <p className="mt-0.5 text-sm text-cx-muted sm:pl-6">
+                    Use this for a new class or extra students. You will make its codes next in Create Codes.
+                  </p>
+                </div>
+
+                {allocateNewBatch && (
+                  <div className="space-y-3 sm:pl-6">
+                    {newClasses.map((item, index) => (
+                      <div key={item.id} className="rounded-xl border border-cx-border bg-cx-surface p-3.5">
+                        <div className="mb-2 flex items-center justify-between gap-2">
+                          <span className="text-xs font-semibold uppercase tracking-wider text-cx-muted">
+                            Class {index + 1}
+                          </span>
+                          {newClasses.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => removeClass(item.id)}
+                              aria-label={`Remove class ${index + 1}`}
+                              className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-cx-muted transition-colors hover:bg-red-50 hover:text-red-700"
+                            >
+                              <X size={16} aria-hidden="true" />
+                            </button>
+                          )}
                         </div>
-                        {batch.isPending ? (
-                          <div className="text-xs text-cx-muted mt-1">
-                            {batch.seatCount} seat(s) allocated · codes not generated yet
-                          </div>
-                        ) : (
-                          <div className="text-xs text-cx-muted mt-1">
-                            {batch.codeCount} code(s) · {batch.redeemedCount} redeemed · {batch.unusedCount} unused ·{" "}
-                            {batch.expiredCount} expired
-                            {batch.revokedCount > 0 && ` · ${batch.revokedCount} revoked`}
-                          </div>
-                        )}
-                        <div className="text-xs text-cx-muted">
-                          Created {formatIsoDate(batch.createdAt)} · Expires {formatIsoDate(batch.expiresAt)}
+                        <div className="grid gap-3 sm:grid-cols-[1fr_9rem]">
+                          <TextField
+                            label="Class name"
+                            value={item.name}
+                            onChange={(value) => updateClass(item.id, { name: value })}
+                          />
+                          <NumberField
+                            label="Seats"
+                            value={item.seats}
+                            onChange={(value) => updateClass(item.id, { seats: value })}
+                          />
                         </div>
-                        {!renewable && (
-                          <div className="text-xs text-cx-muted mt-1 italic">
-                            {batch.isPending
-                              ? "Nothing to extend yet — generate its codes in Create Codes."
-                              : "All codes revoked, replaced or deleted — cannot be extended."}
-                          </div>
+                        {!item.name.trim() && (
+                          <p className="mt-1.5 text-xs text-amber-700">Enter a class name, for example Class 5A.</p>
                         )}
                       </div>
-                    </label>
-                  );
-                })}
+                    ))}
+
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <button
+                        type="button"
+                        onClick={addClass}
+                        disabled={newClasses.length >= MAX_NEW_CLASSES}
+                        className="cx-btn-secondary w-full sm:w-auto"
+                      >
+                        <Plus size={16} aria-hidden="true" />
+                        Add another class
+                      </button>
+                      <span className="text-sm text-cx-muted">
+                        {newClasses.length} class{newClasses.length === 1 ? "" : "es"} · {newSeatTotal} seats in total
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
+            </Step>
 
-          <div className="glass-card p-6 max-w-4xl space-y-4 mb-6">
-            <label className="flex items-center gap-2 text-lg font-medium cursor-pointer">
-              <input
-                type="checkbox"
-                checked={allocateNewBatch}
-                onChange={(e) => setAllocateNewBatch(e.target.checked)}
-              />
-              Also allocate a new batch (seats only)
-            </label>
-            <p className="text-xs text-cx-muted">
-              Optional. Reserves named, sized seats under this renewal's plan window. No codes are generated and no
-              email is sent — generate the codes from Create Codes when you're ready.
-            </p>
-
-            {allocateNewBatch && (
-              <div className="grid sm:grid-cols-2 gap-4">
+            {/* Step 3: dates */}
+            <Step
+              number={3}
+              title="Set the dates"
+              hint="Use the same dates for every class so they all end together."
+            >
+              <div className="grid gap-4 md:grid-cols-3">
                 <div>
-                  <TextField label="Batch name (required)" value={newBatchName} onChange={setNewBatchName} />
-                  {!trimmedBatchName && <p className="mt-1 text-xs text-amber-300">A batch name is required.</p>}
+                  <label htmlFor="renew-plan-duration" className="cx-label">Plan length</label>
+                  <Select
+                    id="renew-plan-duration"
+                    value={planDuration}
+                    onChange={(e) => setPlanDuration(e.target.value as PlanDuration)}
+                    className="cx-input mt-1 w-full"
+                  >
+                    {planOptions.map((plan) => (
+                      <option key={plan} value={plan}>{plan.replace(/_/g, " ")}</option>
+                    ))}
+                  </Select>
                 </div>
-                <NumberField label="Number of seats" value={newBatchSeats} onChange={setNewBatchSeats} />
+                <TextField label="Start date" type="date" value={startAt} onChange={setStartAt} />
+                <TextField label="End date" type="date" value={expiresAt} onChange={setExpiresAt} />
               </div>
-            )}
-          </div>
 
-          <div className="glass-card p-6 max-w-4xl space-y-4">
-            <h2 className="text-lg font-medium">New plan window</h2>
-            <div className="grid sm:grid-cols-3 gap-4">
-              <div>
-                <label className="text-sm text-cx-muted">Plan duration</label>
-                <select
-                  value={planDuration}
-                  onChange={(e) => setPlanDuration(e.target.value as PlanDuration)}
-                  className="w-full mt-1 px-3 py-2 rounded-lg bg-white/5 border border-cx-border text-sm"
-                >
-                  {planOptions.map((plan) => (
-                    <option key={plan} value={plan} className="bg-cx-panel">{plan}</option>
-                  ))}
-                </select>
-              </div>
-              <TextField label="Start date" type="date" value={startAt} onChange={setStartAt} />
-              <TextField label="Expiry date" type="date" value={expiresAt} onChange={setExpiresAt} />
+              <p className="mt-4 rounded-xl border border-cx-border bg-cx-surface px-3.5 py-2.5 text-sm text-cx-text">
+                Renewing <span className="font-semibold text-cx-accent">{selectedBatches.length}</span> sheet(s)
+                {allocateNewBatch && (
+                  <>
+                    {" "}
+                    and adding <span className="font-semibold text-cx-accent">{newSeatTotal}</span> seat(s) in{" "}
+                    <span className="font-semibold text-cx-accent">{newClasses.length}</span> new class
+                    {newClasses.length === 1 ? "" : "es"}
+                  </>
+                )}
+                . Total seats after this:{" "}
+                <span className="font-semibold text-cx-accent">{projectedSeats}</span>.
+              </p>
+
+              {allocateNewBatch && newClassNames.length > 0 && (
+                <p className="mt-2 text-sm text-cx-muted">
+                  Next, go to{" "}
+                  <Link to="/admin/codes/create" className="cx-link">
+                    Create Codes
+                  </Link>{" "}
+                  to make the codes for {newClassNames.map((name) => `“${name}”`).join(", ")}, one class at a time.
+                </p>
+              )}
+            </Step>
+
+            {/* Action */}
+            <div className="space-y-3">
+              {error && <p role="alert" className="cx-alert-error">{error}</p>}
+              {message && <p role="status" className="cx-alert-success">{message}</p>}
+              {warning && <p role="status" className="cx-alert-warn">{warning}</p>}
+
+              <button
+                onClick={submitRenewal}
+                disabled={busy || !canSubmit}
+                className="cx-btn-primary w-full py-3 sm:w-auto"
+              >
+                {busy ? "Submitting..." : "Renew"}
+              </button>
             </div>
 
-            <p className="text-sm text-cx-muted">
-              Renewing <span className="text-cx-accent2 font-medium">{selectedBatches.length}</span> sheet(s)
-              {allocateNewBatch && (
-                <>
-                  {" "}
-                  plus allocating <span className="text-cx-accent2 font-medium">{newBatchSeats}</span> new seat(s) in
-                  batch <span className="text-cx-accent2 font-medium">"{trimmedBatchName || "…"}"</span>
-                </>
-              )}{" "}
-              — new seat limit will be <span className="text-cx-accent2 font-medium">{projectedSeats}</span>.
-              {allocateNewBatch && trimmedBatchName && (
-                <> Generate codes for "{trimmedBatchName}" in Create Codes when ready.</>
-              )}
-            </p>
-
-            {error && <p className="text-sm text-red-400">{error}</p>}
-            {message && <p className="text-sm text-cx-accent2">{message}</p>}
-            {warning && <p className="text-sm text-amber-300">{warning}</p>}
-
-            <button
-              onClick={submitRenewal}
-              disabled={busy || !canSubmit}
-              className="px-5 py-2.5 rounded-lg bg-cx-accent text-cx-bg font-medium disabled:opacity-50"
-            >
-              {busy ? "Submitting..." : "Renew"}
-            </button>
-          </div>
-        </>
-      )}
-
+            {/* Cancel plan, kept apart so it is not clicked by mistake */}
+            <section className="flex flex-col gap-3 rounded-2xl border border-red-200 bg-red-50/50 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+              <div>
+                <h2 className="font-semibold text-cx-heading">Cancel this school's plan</h2>
+                <p className="mt-0.5 text-sm text-cx-muted">Only use this to stop the current plan.</p>
+              </div>
+              <button
+                onClick={cancelPlan}
+                disabled={busy || !detail?.currentSubscription}
+                className="cx-btn-danger w-full sm:w-auto"
+              >
+                Cancel plan
+              </button>
+            </section>
+          </>
+        )}
+      </div>
     </PortalLayout>
   );
 }
@@ -584,15 +733,15 @@ function TextField({
   type?: string;
 }) {
   return (
-    <div>
-      <label className="text-sm text-cx-muted">{label}</label>
+    <label className="block min-w-0">
+      <span className="cx-label">{label}</span>
       <input
         type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full mt-1 px-3 py-2 rounded-lg bg-white/5 border border-cx-border text-sm"
+        className="cx-input mt-1 w-full"
       />
-    </div>
+    </label>
   );
 }
 
@@ -606,24 +755,24 @@ function NumberField({
   onChange: (value: number) => void;
 }) {
   return (
-    <div>
-      <label className="text-sm text-cx-muted">{label}</label>
+    <label className="block min-w-0">
+      <span className="cx-label">{label}</span>
       <input
         type="number"
         min={1}
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full mt-1 px-3 py-2 rounded-lg bg-white/5 border border-cx-border text-sm"
+        className="cx-input mt-1 w-full"
       />
-    </div>
+    </label>
   );
 }
 
 function PlanField({ label, value }: { label: string; value: string }) {
   return (
-    <div>
-      <div className="text-xs text-cx-muted mb-1">{label}</div>
-      <div className="font-medium">{value}</div>
+    <div className="min-w-0">
+      <div className="text-[11px] font-medium uppercase tracking-wider text-cx-muted">{label}</div>
+      <div className="mt-1 break-words text-sm font-semibold text-cx-heading">{value}</div>
     </div>
   );
 }

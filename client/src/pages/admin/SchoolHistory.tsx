@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import PortalLayout from "../../layouts/PortalLayout";
+import PageHeader from "../../components/PageHeader";
 import StatusBadge from "../../components/StatusBadge";
 import DataTable from "../../components/DataTable";
 import { apiClient, type ApiResponse } from "../../api/client";
@@ -66,25 +67,27 @@ export default function SchoolHistory() {
 
   return (
     <PortalLayout items={adminNavItems}>
-      <div className="mb-6">
-        <h1 className="text-2xl font-semibold">Subscription History</h1>
-        {org && (
-          <p className="text-sm text-cx-muted">
-            {org.name} · {org.identifier} ·{" "}
-            <Link to={`/admin/schools/${organizationId}`} className="text-cx-accent hover:underline">
-              Back to school
-            </Link>
-          </p>
-        )}
-      </div>
+      <PageHeader
+        title="Subscription History"
+        description={
+          org ? (
+            <>
+              {org.name} · {org.identifier} ·{" "}
+              <Link to={`/admin/schools/${organizationId}`} className="cx-link">
+                Back to school
+              </Link>
+            </>
+          ) : undefined
+        }
+      />
 
-      {error && <p className="text-sm text-red-400 mb-4">{error}</p>}
+      {error && <p role="alert" className="cx-alert-error mb-4">{error}</p>}
 
       {loading ? (
-        <div className="text-cx-muted">Loading history...</div>
+        <div role="status" className="text-cx-muted">Loading history...</div>
       ) : (
         <>
-          <p className="text-xs text-cx-muted mb-3">
+          <p className="mb-3 text-xs text-cx-muted">
             Every subscription period this school has had, oldest first, following the renewal chain. Read-only.
           </p>
           <DataTable
@@ -95,7 +98,7 @@ export default function SchoolHistory() {
                 render: (row) => (
                   <span className="text-xs">
                     {row.sequence}
-                    {row.isCurrent && <span className="ml-2 text-cx-accent2">current</span>}
+                    {row.isCurrent && <span className="ml-2 font-medium text-cx-accent">current</span>}
                   </span>
                 ),
               },

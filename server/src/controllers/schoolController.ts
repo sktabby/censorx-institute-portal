@@ -12,7 +12,7 @@ import type { PortalRequest } from "../middleware/requirePortalUser";
 import { ApiError } from "../middleware/errorHandler";
 import { ok } from "../utils/apiResponse";
 import { listCodeRows } from "../services/codeGenerationService";
-import type { OrganizationLicense, OrganizationSubscription } from "../models/types";
+import type { OrganizationLicense, OrganizationPayment, OrganizationSubscription } from "../models/types";
 
 function timestampToIso(value: unknown): string | null {
   if (value && typeof (value as { toDate?: unknown }).toDate === "function") {
@@ -54,6 +54,21 @@ function buildStudentRow(license: OrganizationLicense) {
     lastActiveAt: timestampToIso(license.lastActiveAt),
     status: license.status,
     redeemedAtMillis: timestampMillis(license.redeemedAt),
+  };
+}
+
+/** What a school may see about its payment. Method details (cheque, UPI, card) stay admin-only. */
+function buildPaymentView(payment: OrganizationPayment | null | undefined) {
+  if (!payment) return null;
+  return {
+    status: payment.status,
+    totalAmount: payment.totalAmount,
+    paidAmount: payment.paidAmount,
+    pendingAmount: payment.pendingAmount,
+    installments: payment.installments,
+    method: payment.method,
+    billNumber: payment.billNumber,
+    billDate: timestampToIso(payment.billDate),
   };
 }
 
@@ -193,6 +208,7 @@ export async function getSubscription(req: PortalRequest, res: Response) {
     availableSeats: seatUsage.availableSeats,
     seatUsage,
     allowedDevicesPerStudent: org.allowedDevicesPerStudent,
+    payment: buildPaymentView(org.payment),
     history,
   });
 }

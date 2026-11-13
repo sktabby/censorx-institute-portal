@@ -1,227 +1,230 @@
 import { Link } from "react-router-dom";
-import {
-  Activity,
-  ArrowRight,
-  CheckCircle2,
-  Clock,
-  Eye,
-  KeyRound,
-  Layers,
-  ListChecks,
-  RefreshCw,
-  ShieldCheck,
-  Smartphone,
-  Users,
-} from "lucide-react";
+import { CheckCircle2, CloudOff, EyeOff, Lock } from "lucide-react";
+import { homeContent } from "../config/content";
 
-const solutionCards = [
-  { title: "Secure Student Codes", desc: "Cryptographically random, single-use activation codes for every student.", icon: KeyRound },
-  { title: "Flexible School Plans", desc: "Monthly, three-month, six-month, yearly, or fully custom plan durations.", icon: Layers },
-  { title: "Centralized Code Management", desc: "Track each code from issue to redemption, replacement, revocation, or expiry.", icon: ListChecks },
-  { title: "Android App Protection", desc: "Students redeem codes directly inside the CensorX Android app.", icon: Smartphone },
-];
+const { hero, unsafe, devil, turningPoint, falseSafety, privacy, schools, pricing, finalCta } = homeContent;
 
-const steps = [
-  "CensorX creates the school account.",
-  "CensorX assigns a subscription and seat limit.",
-  "Secure student activation codes are generated.",
-  "Students redeem codes inside the CensorX Android app.",
-  "The school views code and student status in the portal.",
-];
-
-const subscriptionItems = [
-  {
-    icon: Clock,
-    title: "Flexible plan duration",
-    desc: "Choose Monthly, Three months, Six months, Yearly, or a fully Custom duration. CensorX sets this up with each school directly.",
-  },
-  {
-    icon: Users,
-    title: "Seat-based access",
-    desc: "A school purchases access for a set number of student seats. For example, 200 seats covers up to 200 students at once.",
-  },
-  {
-    icon: KeyRound,
-    title: "One code per seat",
-    desc: "Each seat is represented by a unique, single-use activation code distributed by the school and redeemed once in the Android app.",
-  },
-  {
-    icon: RefreshCw,
-    title: "Managed over time",
-    desc: "CensorX can renew a plan, extend the current expiry date, or increase seat count when the school needs broader coverage.",
-  },
-  {
-    icon: Activity,
-    title: "Clear code lifecycle",
-    desc: "Codes move through Unused, Redeemed, Revoked, Replaced, or Expired states, so access remains auditable.",
-  },
-  {
-    icon: Eye,
-    title: "School visibility",
-    desc: "Schools can log in to see seat usage, redeemed codes, and current or past subscription history without waiting for a manual report.",
-  },
-];
-
-const lifecycle = ["Unused", "Redeemed", "Revoked", "Replaced", "Expired"];
-
-const benefits = [
-  "Monthly plans", "Three-month plans", "Six-month plans", "Yearly plans", "Custom plan duration",
-  "Flexible student seat limits", "Secure one-time student activation", "Code revocation",
-  "Code replacement", "Subscription renewal", "Subscription extension", "Centralized student access visibility",
-];
+const privacyTokenIcons = [CloudOff, EyeOff, Lock];
 
 export default function Home() {
   return (
     <div>
-      <section className="max-w-6xl mx-auto px-4 pt-16 pb-20 grid lg:grid-cols-[1fr_0.9fr] gap-12 items-center">
+      {/* 1. Hero — the guardian */}
+      <section className="max-w-6xl mx-auto px-4 pt-16 md:pt-20 pb-16 md:pb-24 grid gap-10 lg:grid-cols-[1fr_0.85fr] items-center">
         <div>
           <span className="badge text-cx-accent border-cx-accent/40 bg-cx-accent/10 mb-4">
-            CensorX.ai Institute Portal
+            {hero.eyebrow}
           </span>
-          <h1 className="text-4xl md:text-5xl font-semibold leading-tight mb-4">
-            Safer Digital Access for Every Student
+          <h1 className="text-3xl sm:text-4xl md:text-5xl font-semibold leading-tight md:leading-tight mb-6">
+            {hero.titleLead}{" "}
+            <span className="block mt-2 bg-gradient-to-r from-cx-accent to-cx-accent2 bg-clip-text text-transparent">
+              {hero.titleEmphasis}
+            </span>
           </h1>
-          <p className="text-cx-muted mb-8 max-w-lg">
-            CensorX helps schools and institutions provide students with AI-powered protection from harmful
-            visual content and online harassment.
-          </p>
+          <p className="text-cx-muted md:text-lg leading-relaxed mb-8 max-w-xl">{hero.subtitle}</p>
           <div className="flex flex-wrap gap-3">
-            <Link to="/contact" className="min-h-11 inline-flex items-center px-5 py-2.5 rounded-lg bg-cx-accent text-cx-bg font-medium hover:opacity-90 transition-opacity">
-              Partner With CensorX
+            <Link
+              to={hero.primaryCta.to}
+              className="min-h-11 inline-flex items-center px-5 py-2.5 rounded-lg bg-cx-accent text-cx-bg font-medium hover:opacity-90 transition-opacity"
+            >
+              {hero.primaryCta.label}
             </Link>
-            <Link to="/login" className="min-h-11 inline-flex items-center px-5 py-2.5 rounded-lg border border-cx-border hover:border-cx-accent/50 transition-colors">
-              Institute Login
+            <Link
+              to={hero.secondaryCta.to}
+              className="min-h-11 inline-flex items-center px-5 py-2.5 rounded-lg border border-cx-border hover:border-cx-accent/50 transition-colors"
+            >
+              {hero.secondaryCta.label}
             </Link>
           </div>
         </div>
-
-        <div className="glass-card p-6 md:p-7">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="h-11 w-11 rounded-lg border border-cx-accent/40 bg-cx-accent/10 flex items-center justify-center">
-              <ShieldCheck className="text-cx-accent" size={22} />
-            </div>
-            <div>
-              <p className="text-sm font-medium">Protection flow</p>
-              <p className="text-xs text-cx-muted">From school subscription to student device</p>
-            </div>
-          </div>
-
-          <div className="space-y-3">
-            {[
-              ["School subscription", "Plan duration and seat count are set up with CensorX."],
-              ["Student codes", "Unique codes are generated for distribution."],
-              ["Android activation", "Students redeem once to activate protection."],
-            ].map(([title, desc], index) => (
-              <div key={title} className="flex gap-3 rounded-lg border border-cx-border bg-white/5 p-4">
-                <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-cx-accent2/10 text-sm font-semibold text-cx-accent2">
-                  {index + 1}
-                </div>
-                <div>
-                  <h3 className="font-medium">{title}</h3>
-                  <p className="text-sm text-cx-muted">{desc}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className="mt-5 flex flex-wrap gap-2">
-            {["Privacy-first", "Single-use codes", "School visibility"].map((item) => (
-              <span key={item} className="badge border-cx-border bg-white/5 text-cx-muted">{item}</span>
-            ))}
+        <div className="relative">
+          <div aria-hidden className="absolute -inset-6 rounded-full blur-3xl bg-cx-accent/10" />
+          <div className="relative glass-card p-2 shadow-[0_24px_70px_-30px_rgba(0,0,0,0.9)]">
+            <img
+              src={hero.img}
+              alt={hero.imgAlt}
+              className="w-full aspect-[4/5] max-h-[480px] object-cover object-[center_65%] rounded-lg"
+            />
           </div>
         </div>
       </section>
 
-      <section className="max-w-6xl mx-auto px-4 py-16 border-t border-cx-border">
-        <h2 className="text-2xl font-semibold mb-8 text-center">Institute Solution</h2>
-        <div className="grid sm:grid-cols-2 md:grid-cols-4 gap-5">
-          {solutionCards.map(({ title, desc, icon: Icon }) => (
-            <div key={title} className="glass-card p-5 transition-transform hover:-translate-y-1 hover:border-cx-accent/50">
-              <div className="mb-4 h-11 w-11 rounded-lg border border-cx-accent/40 bg-cx-accent/10 flex items-center justify-center">
-                <Icon className="text-cx-accent" size={22} />
-              </div>
-              <h3 className="font-medium mb-1">{title}</h3>
-              <p className="text-sm text-cx-muted">{desc}</p>
-            </div>
-          ))}
-        </div>
-      </section>
+      {/* 2. The reality — danger */}
+      <section className="max-w-6xl mx-auto px-4 py-16 md:py-24 border-t border-cx-border">
+        <h2 className="text-2xl md:text-3xl font-semibold text-center mb-10 md:mb-14">{unsafe.title}</h2>
 
-      <section className="max-w-6xl mx-auto px-4 py-16 border-t border-cx-border">
-        <div className="max-w-3xl mx-auto text-center mb-10">
-          <h2 className="text-2xl font-semibold mb-3">How School Subscriptions Work</h2>
-          <p className="text-cx-muted">
-            CensorX subscriptions are set up directly with each school, combining a plan duration,
-            a seat count, and one-time activation codes that students redeem in the Android app.
+        <div className="grid gap-8 lg:grid-cols-2 lg:gap-14 items-center mb-16 md:mb-24">
+          <div className="relative">
+            <div aria-hidden className="absolute -inset-6 rounded-full blur-3xl bg-cx-accent/5" />
+            <div className="relative glass-card p-2 shadow-[0_24px_70px_-30px_rgba(0,0,0,0.9)]">
+              <img
+                src={unsafe.img}
+                alt={unsafe.imgAlt}
+                loading="lazy"
+                className="w-full aspect-[4/3] object-cover object-[center_45%] rounded-lg"
+              />
+            </div>
+          </div>
+          <div className="space-y-5">
+            {unsafe.stats.map((stat) => (
+              <div key={stat.value} className="glass-card p-6 md:p-7">
+                <p className="text-4xl md:text-5xl font-semibold text-cx-accent mb-3">{stat.value}</p>
+                <p className="text-cx-muted leading-relaxed">{stat.text}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* A quiet, dignified moment — no imagery, no accent color */}
+        <div className="max-w-3xl mx-auto rounded-xl2 border border-cx-border bg-black/40 px-6 py-12 md:px-14 md:py-16 text-center space-y-8">
+          <p className="text-xs uppercase tracking-[0.35em] text-cx-muted">{unsafe.heartbreak.label}</p>
+          <p className="text-lg md:text-xl leading-relaxed md:leading-loose text-cx-text/90">
+            {unsafe.heartbreak.story}
           </p>
+          <p className="text-sm md:text-base text-cx-muted leading-relaxed">{unsafe.heartbreak.stat}</p>
         </div>
+      </section>
 
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5 mb-8">
-          {subscriptionItems.map(({ icon: Icon, title, desc }) => (
-            <div key={title} className="glass-card p-5">
-              <Icon className="text-cx-accent2 mb-3" size={22} />
-              <h3 className="font-medium mb-2">{title}</h3>
-              <p className="text-sm text-cx-muted">{desc}</p>
-            </div>
-          ))}
-        </div>
-
-        <div className="glass-card p-5 md:p-6">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-5">
-            <div>
-              <h3 className="font-medium mb-2">Activation code lifecycle</h3>
-              <p className="text-sm text-cx-muted max-w-xl">
-                The portal keeps every code visible by state, so schools know what is ready to distribute,
-                what is already in use, and what needs attention.
+      {/* 3. The confrontation — helplessness */}
+      <section className="max-w-4xl mx-auto px-4 py-16 md:py-24 border-t border-cx-border">
+        <h2 className="text-2xl md:text-3xl font-semibold text-center mb-10 md:mb-14">{devil.title}</h2>
+        <div className="divide-y divide-cx-border border-y border-cx-border">
+          {devil.questions.map((question) => (
+            <div
+              key={question}
+              className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-8 py-8 md:py-10"
+            >
+              <p className="text-lg md:text-xl text-cx-muted leading-relaxed max-w-xl">{question}</p>
+              <p className="text-5xl md:text-7xl font-bold tracking-tight text-cx-text self-end sm:self-auto">
+                {devil.answer}
               </p>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              {lifecycle.map((item, index) => (
-                <div key={item} className="flex items-center gap-2">
-                  <span className="badge border-cx-border bg-white/5 text-cx-muted">{item}</span>
-                  {index < lifecycle.length - 1 && <ArrowRight className="hidden sm:block text-cx-muted" size={16} />}
-                </div>
-              ))}
+          ))}
+        </div>
+      </section>
+
+      {/* 4. The turning point — hope */}
+      <section className="max-w-3xl mx-auto px-4 py-16 md:py-24 border-t border-cx-border text-center">
+        <h2 className="text-2xl md:text-3xl font-semibold mb-6">{turningPoint.title}</h2>
+        <p className="text-cx-muted md:text-lg leading-relaxed mb-12">{turningPoint.body}</p>
+        <p className="text-2xl md:text-4xl font-semibold leading-snug md:leading-snug bg-gradient-to-r from-cx-accent to-cx-accent2 bg-clip-text text-transparent">
+          {turningPoint.pivot}
+        </p>
+      </section>
+
+      {/* 5. The betrayal of existing tools */}
+      <section className="max-w-6xl mx-auto px-4 py-16 md:py-24 border-t border-cx-border">
+        <h2 className="text-2xl md:text-3xl font-semibold text-center mb-10 md:mb-14">{falseSafety.title}</h2>
+        <div className="grid gap-8 lg:grid-cols-2 lg:gap-14 items-center">
+          <div className="relative lg:order-2">
+            <div aria-hidden className="absolute -inset-6 rounded-full blur-3xl bg-cx-accent/5" />
+            <div className="relative glass-card p-2 shadow-[0_24px_70px_-30px_rgba(0,0,0,0.9)]">
+              <img
+                src={falseSafety.img}
+                alt={falseSafety.imgAlt}
+                loading="lazy"
+                className="w-full aspect-[4/3] object-cover object-[center_40%] rounded-lg"
+              />
             </div>
           </div>
+          <div className="space-y-5">
+            {falseSafety.paragraphs.map((paragraph) => (
+              <p key={paragraph.slice(0, 40)} className="text-cx-muted leading-relaxed md:text-lg">
+                {paragraph}
+              </p>
+            ))}
+          </div>
+        </div>
+        <div className="text-center mt-14 md:mt-20">
+          <p className="text-sm uppercase tracking-widest text-cx-muted mb-4">{falseSafety.verdictLead}</p>
+          <p className="text-3xl md:text-4xl font-semibold leading-snug max-w-2xl mx-auto">{falseSafety.verdict}</p>
+          <div aria-hidden className="mt-6 mx-auto h-1 w-24 rounded-full bg-gradient-to-r from-cx-accent to-cx-accent2" />
         </div>
       </section>
 
-      <section className="max-w-6xl mx-auto px-4 py-16 border-t border-cx-border">
-        <h2 className="text-2xl font-semibold mb-8 text-center">How It Works</h2>
-        <ol className="max-w-2xl mx-auto space-y-4">
-          {steps.map((step, idx) => (
-            <li key={step} className="flex items-start gap-4">
-              <span className="flex-none w-8 h-8 rounded-full bg-cx-accent/10 border border-cx-accent/40 text-cx-accent flex items-center justify-center text-sm font-medium">
-                {idx + 1}
-              </span>
-              <span className="text-cx-muted pt-1">{step}</span>
-            </li>
-          ))}
-        </ol>
+      {/* 6. The promise — privacy */}
+      <section className="max-w-3xl mx-auto px-4 py-16 md:py-24 border-t border-cx-border text-center">
+        <h2 className="text-2xl md:text-3xl font-semibold mb-8">{privacy.title}</h2>
+        <p className="text-cx-muted md:text-lg leading-relaxed mb-8">{privacy.intro}</p>
+        <p className="text-3xl md:text-4xl font-semibold text-cx-accent2 mb-8">{privacy.defiance}</p>
+        <p className="text-cx-text/90 md:text-lg leading-relaxed mb-12">{privacy.promise}</p>
+        <div className="grid gap-4 sm:grid-cols-3 mb-12">
+          {privacy.tokens.map((token, index) => {
+            const Icon = privacyTokenIcons[index];
+            return (
+              <div key={token} className="glass-card px-4 py-6 flex flex-col items-center gap-3">
+                <Icon className="text-cx-accent2" size={24} />
+                <span className="font-semibold text-lg">{token}</span>
+              </div>
+            );
+          })}
+        </div>
+        <p className="text-cx-muted italic leading-relaxed">{privacy.closing}</p>
       </section>
 
-      <section className="max-w-6xl mx-auto px-4 py-16 border-t border-cx-border">
-        <h2 className="text-2xl font-semibold mb-8 text-center">Benefits for Schools</h2>
-        <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-3">
-          {benefits.map((b) => (
-            <div key={b} className="glass-card px-4 py-3 text-sm text-cx-muted flex items-center gap-2">
-              <CheckCircle2 className="text-cx-accent2 shrink-0" size={16} />
-              {b}
+      {/* 7. Why schools */}
+      <section className="max-w-6xl mx-auto px-4 py-16 md:py-24 border-t border-cx-border">
+        <div className="max-w-3xl mx-auto text-center mb-10 md:mb-14">
+          <h2 className="text-2xl md:text-3xl font-semibold mb-5">{schools.title}</h2>
+          <p className="text-cx-muted md:text-lg leading-relaxed">{schools.intro}</p>
+        </div>
+        <div className="grid gap-8 lg:grid-cols-2 lg:gap-14 items-center">
+          <div className="relative">
+            <div aria-hidden className="absolute -inset-6 rounded-full blur-3xl bg-cx-accent2/10" />
+            <div className="relative glass-card p-2 shadow-[0_24px_70px_-30px_rgba(0,0,0,0.9)]">
+              <img
+                src={schools.img}
+                alt={schools.imgAlt}
+                loading="lazy"
+                className="w-full aspect-[4/3] object-cover object-[35%_center] rounded-lg"
+              />
             </div>
-          ))}
+          </div>
+          <ul className="space-y-4">
+            {schools.benefits.map((benefit) => (
+              <li key={benefit} className="glass-card p-5 flex items-start gap-3">
+                <CheckCircle2 className="text-cx-accent2 shrink-0 mt-0.5" size={20} />
+                <span className="text-cx-text/90 leading-relaxed">{benefit}</span>
+              </li>
+            ))}
+          </ul>
         </div>
       </section>
 
-      <section className="max-w-6xl mx-auto px-4 py-20 border-t border-cx-border text-center">
-        <h2 className="text-3xl font-semibold mb-4">Protect Your Students With CensorX</h2>
-        <p className="text-cx-muted mb-6">Talk to CensorX about plans, seats, deployment, and school portal access.</p>
-        <div className="flex flex-wrap justify-center gap-3">
-          <Link to="/contact" className="min-h-11 inline-flex items-center px-5 py-2.5 rounded-lg bg-cx-accent text-cx-bg font-medium hover:opacity-90 transition-opacity">
-            Contact CensorX
+      {/* 8. Pricing — a contribution */}
+      <section className="max-w-6xl mx-auto px-4 py-16 md:py-24 border-t border-cx-border">
+        <div className="max-w-2xl mx-auto glass-card px-6 py-12 md:px-14 md:py-16 text-center">
+          <span className="badge text-cx-accent2 border-cx-accent2/40 bg-cx-accent2/10 mb-6">{pricing.badge}</span>
+          <p className="mb-6">
+            <span className="text-5xl md:text-6xl font-semibold">{pricing.price}</span>
+            <span className="text-cx-muted text-lg ml-1">{pricing.period}</span>
+          </p>
+          <p className="text-cx-muted leading-relaxed mb-8">{pricing.body}</p>
+          <Link
+            to={pricing.cta.to}
+            className="min-h-11 inline-flex items-center px-6 py-2.5 rounded-lg bg-cx-accent text-cx-bg font-medium hover:opacity-90 transition-opacity"
+          >
+            {pricing.cta.label}
           </Link>
-          <Link to="/login" className="min-h-11 inline-flex items-center px-5 py-2.5 rounded-lg border border-cx-border hover:border-cx-accent/50 transition-colors">
-            Institute Login
+        </div>
+      </section>
+
+      {/* Existing closing contact section — kept intact */}
+      <section className="max-w-6xl mx-auto px-4 py-20 border-t border-cx-border text-center">
+        <h2 className="text-3xl font-semibold mb-4">{finalCta.title}</h2>
+        <p className="text-cx-muted mb-6">{finalCta.body}</p>
+        <div className="flex flex-wrap justify-center gap-3">
+          <Link
+            to={finalCta.primaryCta.to}
+            className="min-h-11 inline-flex items-center px-5 py-2.5 rounded-lg bg-cx-accent text-cx-bg font-medium hover:opacity-90 transition-opacity"
+          >
+            {finalCta.primaryCta.label}
+          </Link>
+          <Link
+            to={finalCta.secondaryCta.to}
+            className="min-h-11 inline-flex items-center px-5 py-2.5 rounded-lg border border-cx-border hover:border-cx-accent/50 transition-colors"
+          >
+            {finalCta.secondaryCta.label}
           </Link>
         </div>
       </section>

@@ -1,6 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
+import { FileText, Send } from "lucide-react";
 import PortalLayout from "../../layouts/PortalLayout";
+import BillDialog from "../../components/BillDialog";
+import PaymentStatusBadge, { formatInr, type PaymentStatusValue } from "../../components/PaymentStatusBadge";
+import PageHeader from "../../components/PageHeader";
+import Select from "../../components/Select";
+import SearchBox from "../../components/SearchBox";
+import Pagination from "../../components/Pagination";
+import SummaryCard from "../../components/SummaryCard";
 import StatusBadge from "../../components/StatusBadge";
 import DataTable from "../../components/DataTable";
 import { apiClient, type ApiResponse, type PagedResult } from "../../api/client";
@@ -20,6 +28,26 @@ interface SeatUsage {
   availableSeats: number;
 }
 
+/** Payment recorded when the school was created. Missing on older schools. */
+interface PaymentInfo {
+  billNumber: string;
+  status: PaymentStatusValue;
+  totalAmount: number;
+  paidAmount: number;
+  pendingAmount: number;
+  installments: number;
+  method: "CASH" | "CHEQUE" | "UPI" | "CARD" | null;
+  methodDetails: {
+    chequeNumber?: string;
+    bankName?: string;
+    chequeDate?: string;
+    transactionId?: string;
+    upiId?: string;
+    cardLast4?: string;
+    cardReference?: string;
+  } | null;
+}
+
 interface OrgDetail {
   organizationId: string;
   name: string;
@@ -29,6 +57,24 @@ interface OrgDetail {
   subscriptionStatus: string;
   seatUsage: SeatUsage;
   allowedDevicesPerStudent: number;
+  payment?: PaymentInfo | null;
+}
+
+const METHOD_LABEL = { CASH: "Cash", CHEQUE: "Cheque", UPI: "UPI", CARD: "Card" } as const;
+
+function methodSummary(payment: PaymentInfo): string {
+  if (!payment.method) return "None yet";
+  const label = METHOD_LABEL[payment.method];
+  const d = payment.methodDetails ?? {};
+  const detail =
+    payment.method === "CHEQUE"
+      ? [d.chequeNumber && `No. ${d.chequeNumber}`, d.bankName].filter(Boolean).join(" · ")
+      : payment.method === "UPI"
+        ? d.transactionId && `Txn ${d.transactionId}`
+        : payment.method === "CARD"
+          ? d.cardLast4 && `•••• ${d.cardLast4}`
+          : "";
+  return detail ? `${label} (${detail})` : label;
 }
 
 interface LicenseRow {
@@ -52,6 +98,10 @@ export default function SchoolDetail() {
   const [licenseTotalPages, setLicenseTotalPages] = useState(1);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [billHtml, setBillHtml] = useState<string | null>(null);
+  const [billBusy, setBillBusy] = useState(false);
+  const [billNotice, setBillNotice] = useState<string | null>(null);
+  const [billError, setBillError] = useState<string | null>(null);
 
   async function refresh() {
     if (!organizationId) return;
@@ -92,44 +142,80 @@ export default function SchoolDetail() {
     }
   }
 
+  async function viewBill() {
+    if (!organizationId) return;
+    setBillBusy(true);
+    setBillNotice(null);
+    setBillError(null);
+    try {
+      const res = await apiClient.get<ApiResponse<{ billNumber: string; html: string }>>(
+        `/admin/organizations/${organizationId}/bill`
+      );
+      if (res.data.success) setBillHtml(res.data.data.html);
+      else setBillError(res.data.error.message);
+    } catch (err: any) {
+      setBillError(err?.response?.data?.error?.message ?? "Could not load the bill.");
+    } finally {
+      setBillBusy(false);
+    }
+  }
+
+  async function sendBill() {
+    if (!organizationId) return;
+    setBillBusy(true);
+    setBillNotice(null);
+    setBillError(null);
+    try {
+      const res = await apiClient.post<ApiResponse<{ sent: boolean; to: string }>>(
+        `/admin/organizations/${organizationId}/bill/send`
+      );
+      if (res.data.success) setBillNotice(`Bill emailed to ${res.data.data.to}.`);
+      else setBillError(res.data.error.message);
+    } catch (err: any) {
+      setBillError(err?.response?.data?.error?.message ?? "The bill could not be emailed.");
+    } finally {
+      setBillBusy(false);
+    }
+  }
+
   if (!org) {
     return (
       <PortalLayout items={adminNavItems}>
-        <div className="text-cx-muted">Loading school...</div>
+        <div role="status" className="text-cx-muted">Loading school...</div>
       </PortalLayout>
     );
   }
 
   return (
     <PortalLayout items={adminNavItems}>
-      <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold">{org.name}</h1>
-          <p className="text-sm text-cx-muted">{org.identifier}</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <StatusBadge status={org.status} />
-          <Link
-            to={`/admin/schools/${organizationId}/history`}
-            className="px-4 py-2 rounded-lg border border-cx-border text-sm hover:border-cx-accent/50"
-          >
-            Subscription History
-          </Link>
-          <button
-            onClick={toggleSuspend}
-            disabled={busy}
-            className="px-4 py-2 rounded-lg border border-cx-border text-sm hover:border-cx-accent/50"
-          >
-            {org.organizationStatus === "SUSPENDED" ? "Reactivate" : "Suspend"}
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title={org.name}
+        description={<span className="break-all">{org.identifier}</span>}
+        action={
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+            <StatusBadge status={org.status} />
+            <Link
+              to={`/admin/schools/${organizationId}/history`}
+              className="cx-btn-secondary min-h-11 w-full sm:w-auto"
+            >
+              Subscription History
+            </Link>
+            <button
+              onClick={toggleSuspend}
+              disabled={busy}
+              className="cx-btn-secondary w-full sm:w-auto"
+            >
+              {org.organizationStatus === "SUSPENDED" ? "Reactivate" : "Suspend"}
+            </button>
+          </div>
+        }
+      />
 
-      {message && <p className="text-sm text-cx-accent2 mb-4">{message}</p>}
+      {message && <p role="status" className="cx-alert-success mb-4">{message}</p>}
 
       {/* Seat numbers come straight from the server's seat-accounting module —
           no arithmetic here, so admin and school views cannot disagree. */}
-      <div className="grid sm:grid-cols-2 md:grid-cols-5 gap-4 mb-8">
+      <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         <StatCard label="Total seats" value={org.seatUsage.totalSeats} />
         <StatCard label="Activated" value={org.seatUsage.activatedSeats} />
         <StatCard label="Unused codes" value={org.seatUsage.unusedCodes} />
@@ -137,36 +223,77 @@ export default function SchoolDetail() {
         <StatCard label="Devices / student" value={org.allowedDevicesPerStudent} />
       </div>
 
-      <div className="flex items-center justify-between mb-3 flex-wrap gap-3">
-        <h2 className="text-lg font-medium">Student Licenses</h2>
+      {/* Payment: only for schools created with payment details */}
+      {org.payment && (
+        <section aria-labelledby="school-payment" className="glass-card mb-8 p-4 sm:p-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <h2 id="school-payment" className="text-lg font-semibold">
+                Payment
+              </h2>
+              <PaymentStatusBadge status={org.payment.status} />
+            </div>
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+              <button onClick={viewBill} disabled={billBusy} className="cx-btn-secondary">
+                <FileText size={16} aria-hidden="true" />
+                View bill
+              </button>
+              <button onClick={sendBill} disabled={billBusy} className="cx-btn-primary">
+                <Send size={16} aria-hidden="true" />
+                {billBusy ? "Please wait..." : "Send bill to school"}
+              </button>
+            </div>
+          </div>
+
+          <dl className="mt-5 grid grid-cols-2 gap-x-4 gap-y-4 md:grid-cols-5">
+            <PayFigure label="Total">{formatInr(org.payment.totalAmount)}</PayFigure>
+            <PayFigure label="Paid">{formatInr(org.payment.paidAmount)}</PayFigure>
+            <PayFigure label="Pending">{formatInr(org.payment.pendingAmount)}</PayFigure>
+            <PayFigure label="Installments">{org.payment.installments}</PayFigure>
+            <PayFigure label="Method">{methodSummary(org.payment)}</PayFigure>
+          </dl>
+
+          <p className="mt-4 text-xs text-cx-muted">Bill {org.payment.billNumber}</p>
+
+          {billNotice && <p role="status" className="cx-alert-success mt-4">{billNotice}</p>}
+          {billError && <p role="alert" className="cx-alert-error mt-4">{billError}</p>}
+        </section>
+      )}
+
+      <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+        <h2 className="text-lg font-semibold">Student Licenses</h2>
         <span className="text-sm text-cx-muted">
           Showing {licenses.length} of {licenseTotal} licenses
         </span>
       </div>
 
-      <div className="grid md:grid-cols-[220px_1fr] gap-3 mb-4">
-        <select
+      <div className="mb-4 grid gap-3 sm:grid-cols-[220px_1fr]">
+        <Select
+          aria-label="Filter by status"
           value={licenseStatus}
           onChange={(e) => {
             setLicenseStatus(e.target.value);
             setLicensePage(1);
           }}
-          className="px-3 py-2 rounded-lg bg-white/5 border border-cx-border text-sm"
+          className="cx-input w-full"
         >
-          <option value="" className="bg-cx-panel">All statuses</option>
+          <option value="">All statuses</option>
           {licenseStatuses.map((status) => (
-            <option key={status} value={status} className="bg-cx-panel">{status}</option>
+            <option key={status} value={status}>{status}</option>
           ))}
-        </select>
-        <input
-          placeholder="Search student name, student ID, or license ID"
-          value={licenseSearch}
-          onChange={(e) => {
-            setLicenseSearch(e.target.value);
-            setLicensePage(1);
-          }}
-          className="px-3 py-2 rounded-lg bg-white/5 border border-cx-border text-sm"
-        />
+        </Select>
+        <SearchBox>
+          <input
+            aria-label="Search student name, student ID, or license ID"
+            placeholder="Search student name, student ID, or license ID"
+            value={licenseSearch}
+            onChange={(e) => {
+              setLicenseSearch(e.target.value);
+              setLicensePage(1);
+            }}
+            className="cx-input w-full pl-10"
+          />
+        </SearchBox>
       </div>
 
       <DataTable
@@ -188,37 +315,21 @@ export default function SchoolDetail() {
       <p className="text-xs text-cx-muted mt-4">
         To generate or manage activation codes for this school, use the Codes section.
       </p>
+
+      <BillDialog html={billHtml} billNumber={org.payment?.billNumber ?? ""} onClose={() => setBillHtml(null)} />
     </PortalLayout>
   );
 }
 
-function Pagination({ page, totalPages, onPage }: { page: number; totalPages: number; onPage: (page: number) => void }) {
+function PayFigure({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="flex items-center gap-3 mt-4 text-sm">
-      <button
-        onClick={() => onPage(Math.max(1, page - 1))}
-        disabled={page <= 1}
-        className="px-3 py-1.5 rounded-lg border border-cx-border disabled:opacity-40"
-      >
-        Previous
-      </button>
-      <span className="text-cx-muted">Page {page} of {totalPages}</span>
-      <button
-        onClick={() => onPage(Math.min(totalPages, page + 1))}
-        disabled={page >= totalPages}
-        className="px-3 py-1.5 rounded-lg border border-cx-border disabled:opacity-40"
-      >
-        Next
-      </button>
+    <div className="min-w-0">
+      <dt className="text-[11px] font-medium uppercase tracking-wider text-cx-muted">{label}</dt>
+      <dd className="mt-0.5 break-words text-sm font-semibold text-cx-heading">{children}</dd>
     </div>
   );
 }
 
 function StatCard({ label, value }: { label: string; value: number | string }) {
-  return (
-    <div className="glass-card p-4">
-      <div className="text-xs text-cx-muted mb-1">{label}</div>
-      <div className="text-xl font-semibold">{value}</div>
-    </div>
-  );
+  return <SummaryCard label={label} value={value} />;
 }

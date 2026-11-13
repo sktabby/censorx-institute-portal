@@ -25,6 +25,34 @@ export interface PortalUser {
   lastLoginAt: FirebaseFirestore.Timestamp | null;
 }
 
+export type PaymentMethod = "CASH" | "CHEQUE" | "UPI" | "CARD";
+export type PaymentStatus = "PENDING_PAYMENT" | "INSTALLMENTS" | "PREPAID";
+
+/** Method-specific details. Only the keys relevant to the chosen method are stored. */
+export interface PaymentMethodDetails {
+  chequeNumber?: string;
+  bankName?: string;
+  chequeDate?: string;
+  transactionId?: string;
+  upiId?: string;
+  /** Last four digits only. Full card numbers are never accepted or stored. */
+  cardLast4?: string;
+  cardReference?: string;
+}
+
+/** Payment recorded when a school is created. Absent on schools created before billing existed. */
+export interface OrganizationPayment {
+  billNumber: string;
+  billDate: FirebaseFirestore.Timestamp;
+  totalAmount: number;
+  paidAmount: number;
+  pendingAmount: number;
+  installments: number;
+  status: PaymentStatus;
+  method: PaymentMethod | null;
+  methodDetails: PaymentMethodDetails | null;
+}
+
 export interface Organization {
   organizationId: string;
   name: string;
@@ -43,6 +71,7 @@ export interface Organization {
   currentSubscriptionId: string | null;
   billingReference: string | null;
   notes: string | null;
+  payment?: OrganizationPayment | null;
   createdAt: FirebaseFirestore.Timestamp;
   createdBy: string;
   updatedAt: FirebaseFirestore.Timestamp;

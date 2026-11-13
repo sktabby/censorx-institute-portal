@@ -20,12 +20,17 @@ export default function DataTable<T>({
 
   return (
     <div className="glass-card max-w-full overflow-hidden">
+      {/* Sideways scrolling stays inside the card; the page never scrolls sideways. */}
       <div className="overflow-x-auto">
         <table className="min-w-full text-sm">
-          <thead className="bg-white/5 text-cx-muted text-left">
+          <thead className="bg-cx-accent text-left text-white">
             <tr>
               {columns.map((col) => (
-                <th key={col.header} className="px-4 py-3 font-medium whitespace-nowrap">
+                <th
+                  key={col.header}
+                  scope="col"
+                  className="min-w-[6rem] px-4 py-3 text-xs font-semibold uppercase tracking-wider whitespace-nowrap"
+                >
                   {col.header}
                 </th>
               ))}
@@ -33,10 +38,10 @@ export default function DataTable<T>({
           </thead>
           <tbody>
             {rows.map((row, idx) => (
-              <tr key={idx} className="border-t border-cx-border hover:bg-white/5">
+              <tr key={idx} className="border-t border-cx-line text-cx-text transition-colors hover:bg-cx-tint">
                 {columns.map((col) => (
                   <td key={col.header} className="px-4 py-3 whitespace-nowrap">
-                    {col.render(row)}
+                    <div className="max-w-[18rem] truncate">{col.render(row)}</div>
                   </td>
                 ))}
               </tr>

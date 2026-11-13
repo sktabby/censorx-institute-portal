@@ -4,11 +4,74 @@ export const planDurationEnum = z.enum(["MONTHLY", "THREE_MONTHS", "SIX_MONTHS",
 export const activationCodeStatusEnum = z.enum(["UNUSED", "REDEEMED", "REVOKED", "REPLACED", "EXPIRED", "DELETED"]);
 export const licenseListStatusEnum = z.enum(["ACTIVE", "UNUSED", "REVOKED", "REPLACED", "EXPIRED", "DELETED"]);
 
+export const paymentMethodEnum = z.enum(["CASH", "CHEQUE", "UPI", "CARD"]);
+
+const moneySchema = z.number().finite().min(0).max(100_000_000);
+const detailText = z.string().trim().max(120);
+
+/** Payment captured when a school is created. Pending and status are derived server-side. */
+export const organizationPaymentSchema = z
+  .object({
+    totalAmount: moneySchema.refine((value) => value > 0, "Total amount must be more than 0."),
+    paidAmount: moneySchema,
+    installments: z.number().int().min(1).max(60),
+    method: paymentMethodEnum.optional(),
+    methodDetails: z
+      .object({
+        chequeNumber: detailText.optional(),
+        bankName: detailText.optional(),
+        chequeDate: detailText.optional(),
+        transactionId: detailText.optional(),
+        upiId: detailText.optional(),
+        cardLast4: detailText.optional(),
+        cardReference: detailText.optional(),
+      })
+      .optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.paidAmount > value.totalAmount) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["paidAmount"],
+        message: "Amount paid cannot be more than the total amount.",
+      });
+    }
+    if (value.paidAmount > 0 && !value.method) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["method"], message: "Select a payment method." });
+    }
+    if (value.paidAmount > 0 && value.method) {
+      const details = value.methodDetails ?? {};
+      const missing = (...keys: Array<keyof typeof details>) => keys.some((key) => !details[key]?.trim());
+      if (value.method === "CHEQUE" && missing("chequeNumber", "bankName", "chequeDate")) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["methodDetails"],
+          message: "Cheque number, bank name and cheque date are required.",
+        });
+      }
+      if (value.method === "UPI" && missing("transactionId")) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["methodDetails"],
+          message: "UPI transaction ID is required.",
+        });
+      }
+      if (value.method === "CARD" && !/^\d{4}$/.test(details.cardLast4?.trim() ?? "")) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["methodDetails"],
+          message: "Enter the last 4 digits of the card.",
+        });
+      }
+    }
+  });
+
 export const createOrganizationSchema = z.object({
   name: z.string().min(2).max(200),
   contactName: z.string().min(2).max(120),
   contactEmail: z.string().email(),
   contactPhone: z.string().min(6).max(20),
+  payment: organizationPaymentSchema.optional(),
 });
 
 export const orgIdParamSchema = z.object({ organizationId: z.string().min(1) });
@@ -39,15 +102,18 @@ export const extendSubscriptionSchema = z.object({
  * a new batch reserves named, sized seats and inherits this renewal's own
  * start/expiry; its codes are generated separately from Create Codes.
  */
+const newBatchSchema = z.object({
+  batchName: z.string().trim().min(1).max(120),
+  seatCount: z.number().int().positive().max(100_000),
+});
+
 export const renewBatchesSchema = z
   .object({
     batchNames: z.array(z.string().min(1).max(120)).max(500).default([]),
-    newBatch: z
-      .object({
-        batchName: z.string().trim().min(1).max(120),
-        seatCount: z.number().int().positive().max(100_000),
-      })
-      .optional(),
+    /** Single new class. Kept so existing callers keep working. */
+    newBatch: newBatchSchema.optional(),
+    /** Several new classes in one renewal. */
+    newBatches: z.array(newBatchSchema).max(50).optional(),
     planDuration: planDurationEnum,
     startAt: z.string().datetime(),
     expiresAt: z.string().datetime(),
@@ -57,11 +123,20 @@ export const renewBatchesSchema = z
     idempotencyKey: z.string().min(8).max(200),
   })
   .superRefine((value, ctx) => {
-    if (value.batchNames.length === 0 && !value.newBatch) {
+    const newClasses = [...(value.newBatch ? [value.newBatch] : []), ...(value.newBatches ?? [])];
+    if (value.batchNames.length === 0 && newClasses.length === 0) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["batchNames"],
         message: "Select at least one batch to renew, or allocate a new batch.",
+      });
+    }
+    const names = newClasses.map((item) => item.batchName.toLowerCase());
+    if (new Set(names).size !== names.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["newBatches"],
+        message: "Each new class needs its own name.",
       });
     }
   });

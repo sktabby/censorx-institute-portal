@@ -18,6 +18,8 @@ import { ok } from "../utils/apiResponse";
 import * as organizationService from "../services/organizationService";
 import * as codeGenerationService from "../services/codeGenerationService";
 import * as batchService from "../services/batchService";
+import { renderBillHtml, sendBillForOrganization } from "../services/billService";
+import { writeAuditLog } from "../repositories/auditLogRepository";
 import type {
   LicenseStatus,
   Organization,
@@ -197,6 +199,44 @@ export async function getOrganizationDetail(req: PortalRequest, res: Response) {
   });
 }
 
+/** Returns the school's bill as HTML for viewing or printing in the portal. */
+export async function getOrganizationBill(req: PortalRequest, res: Response) {
+  const org = await getOrganization(req.params.organizationId);
+  if (!org) throw new ApiError(404, "ORG_NOT_FOUND", "School not found.");
+  if (!org.payment) {
+    throw new ApiError(404, "BILL_NOT_FOUND", "This school has no payment record, so there is no bill.");
+  }
+  return ok(res, { billNumber: org.payment.billNumber, html: renderBillHtml(org, org.payment) });
+}
+
+/** Emails the school's bill to its contact email again. */
+export async function sendOrganizationBill(req: PortalRequest, res: Response) {
+  const org = await getOrganization(req.params.organizationId);
+  if (!org) throw new ApiError(404, "ORG_NOT_FOUND", "School not found.");
+  if (!org.payment) {
+    throw new ApiError(404, "BILL_NOT_FOUND", "This school has no payment record, so there is no bill.");
+  }
+
+  try {
+    await sendBillForOrganization(org, org.payment);
+  } catch (err) {
+    if (err instanceof ApiError) throw err;
+    throw new ApiError(502, "BILL_EMAIL_FAILED", "The bill could not be emailed. Please try again.");
+  }
+
+  await writeAuditLog({
+    actorUid: req.portalUser!.uid,
+    actorRole: "SUPER_ADMIN",
+    action: "BILL_SENT",
+    organizationId: org.organizationId,
+    targetType: "organization",
+    targetId: org.organizationId,
+    metadata: { billNumber: org.payment.billNumber },
+  });
+
+  return ok(res, { sent: true, to: org.contactEmail });
+}
+
 export async function suspendOrganization(req: PortalRequest, res: Response) {
   await organizationService.setOrganizationStatus(req.params.organizationId, "SUSPENDED", req.portalUser!.uid);
   return ok(res, { suspended: true });
@@ -231,11 +271,12 @@ export async function renewOrganizationBatches(req: PortalRequest, res: Response
 
   // No plaintext codes are ever returned here: renewal allocates seats and
   // time only. A newly allocated batch is generated from Create Codes.
-  const meta = result.allocatedBatch
-    ? {
-        warning: `Seats allocated for "${result.allocatedBatch.batchName}". Generate its codes in Create Codes when ready.`,
-      }
-    : {};
+  const meta =
+    result.allocatedBatches.length > 0
+      ? {
+          warning: `Seats allocated for ${result.allocatedBatches.map((item) => `"${item.batchName}"`).join(", ")}. Generate the codes in Create Codes when ready.`,
+        }
+      : {};
 
   return ok(res, result, meta, 201);
 }

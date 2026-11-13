@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { sendPasswordResetEmail } from "firebase/auth";
-import { ShieldCheck } from "lucide-react";
 import { firebaseAuth } from "../config/firebase";
+import AuthBrandPanel, { MobileAuthImage } from "../components/AuthBrandPanel";
+import AppFooter from "../components/AppFooter";
 
 export default function ForgotPassword() {
   const [email, setEmail] = useState("");
@@ -26,41 +27,58 @@ export default function ForgotPassword() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4">
-      <div className="w-full max-w-sm">
-        <div className="flex flex-col items-center mb-8">
-          <ShieldCheck className="text-cx-accent mb-2" size={32} />
-          <h1 className="text-xl font-semibold">Reset Password</h1>
-          <p className="text-sm text-cx-muted">Enter your portal email</p>
+    <div className="min-h-screen bg-white md:flex">
+      <AuthBrandPanel />
+
+      {/* Form panel */}
+      <div className="flex min-w-0 flex-1 flex-col">
+      <main className="flex flex-1 items-center justify-center px-6 py-10 md:px-10">
+        <div className="w-full max-w-[400px]">
+          <h1 className="text-3xl font-bold tracking-tight">Reset Password</h1>
+          <p className="mt-2 text-sm text-cx-muted">Enter your school login email</p>
+
+          <form onSubmit={submit} className="mt-8 space-y-5">
+            <div>
+              <label htmlFor="reset-email" className="block text-sm font-medium text-cx-text">
+                Email
+              </label>
+              <input
+                id="reset-email"
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="cx-input mt-1.5 w-full"
+              />
+            </div>
+
+            {error && (
+              <div role="alert" className="cx-alert-error">
+                {error}
+              </div>
+            )}
+            {message && (
+              <div role="status" className="cx-alert-success">
+                {message}
+              </div>
+            )}
+
+            <button type="submit" disabled={busy} className="cx-btn-primary w-full py-3">
+              {busy ? "Sending..." : "Send Reset Email"}
+            </button>
+
+            <Link
+              to="/login"
+              className="mx-auto flex min-h-11 w-fit items-center rounded-lg px-2 text-sm font-medium text-cx-accent hover:text-cx-hover hover:underline"
+            >
+              Back to sign in
+            </Link>
+          </form>
+
+          <MobileAuthImage />
         </div>
-
-        <form onSubmit={submit} className="glass-card p-6 space-y-4">
-          <div>
-            <label className="text-sm text-cx-muted">Email</label>
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full mt-1 px-3 py-2 rounded-lg bg-white/5 border border-cx-border focus:border-cx-accent outline-none"
-            />
-          </div>
-
-          {error && <p className="text-sm text-red-400">{error}</p>}
-          {message && <p className="text-sm text-cx-accent2">{message}</p>}
-
-          <button
-            type="submit"
-            disabled={busy}
-            className="w-full py-2.5 rounded-lg bg-cx-accent text-cx-bg font-medium disabled:opacity-50"
-          >
-            {busy ? "Sending..." : "Send Reset Email"}
-          </button>
-
-          <Link to="/login" className="block text-center text-sm text-cx-muted hover:text-cx-accent">
-            Back to sign in
-          </Link>
-        </form>
+      </main>
+      <AppFooter />
       </div>
     </div>
   );

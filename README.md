@@ -65,7 +65,7 @@ npm run dev:server
 npm run dev:client
 ```
 
-Frontend: http://localhost:5173
+Frontend: http://localhost:5180
 Backend health check: http://localhost:8080/api/v1/health
 
 ## Creating the first Super Admin

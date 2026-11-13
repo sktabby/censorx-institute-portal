@@ -24,6 +24,20 @@ function createTransporter() {
   });
 }
 
+/** Sends a bill as an HTML email with a plain-text fallback. */
+export async function sendBillEmail(input: { to: string; billNumber: string; html: string; text: string }) {
+  assertSmtpConfigured();
+
+  const transporter = createTransporter();
+  await transporter.sendMail({
+    from: env.SMTP_FROM_EMAIL,
+    to: input.to,
+    subject: `CensorX Technologies — Bill ${input.billNumber}`,
+    text: input.text,
+    html: input.html,
+  });
+}
+
 export async function sendSchoolAdminWelcomeEmail(input: { to: string; tempPassword: string }) {
   assertSmtpConfigured();
 

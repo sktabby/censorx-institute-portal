@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Download } from "lucide-react";
+import { Link } from "react-router-dom";
+import { AlertTriangle, Download, HelpCircle } from "lucide-react";
 import PortalLayout from "../../layouts/PortalLayout";
+import PageHeader from "../../components/PageHeader";
+import Step from "../../components/Step";
+import Select from "../../components/Select";
 import DataTable from "../../components/DataTable";
 import StatusBadge from "../../components/StatusBadge";
 import { apiClient, type ApiResponse, type PagedResult } from "../../api/client";
@@ -146,17 +150,17 @@ export default function CreateCodes() {
     : !orgDetail
       ? null
       : !hasActiveSubscription
-        ? "This school has no active subscription. Use Renew School to start one and allocate seats."
+        ? "This school has no active plan yet. Go to Renew School to start one."
         : remainingCapacity <= 0
-          ? "No seats remaining. Allocate more seats in Renew School before creating codes."
+          ? "No seats left. Go to Renew School to add seats first."
           : pendingSelection
             ? mode === "STUDENT_IDS" && studentIdentifiers.length !== pendingSelection.pendingSeats
-              ? `Batch "${pendingSelection.batchName}" has ${pendingSelection.pendingSeats} allocated seat(s) — paste exactly that many student IDs.`
+              ? `"${pendingSelection.batchName}" has ${pendingSelection.pendingSeats} seat(s) waiting. Paste exactly ${pendingSelection.pendingSeats} student IDs.`
               : null
             : mode === "STUDENT_IDS" && studentIdentifiers.length === 0
-              ? "Paste the student IDs to generate codes for."
+              ? "Paste the student IDs to make codes for."
               : mode === "STUDENT_IDS" && studentIdentifiers.length > remainingCapacity
-                ? `Only ${remainingCapacity} seat(s) remain — remove ${studentIdentifiers.length - remainingCapacity} student ID(s).`
+                ? `Only ${remainingCapacity} seat(s) are left. Remove ${studentIdentifiers.length - remainingCapacity} student ID(s).`
                 : null;
 
   async function refreshSelectedSchool(organizationId = selectedOrg) {
@@ -218,11 +222,11 @@ export default function CreateCodes() {
       setGenerated(res.data.data.codes);
       setGeneratedBatch(res.data.data.batchName);
       if (res.data.data.emailDelivery?.sent) {
-        setMessage(`Codes generated and emailed to ${res.data.data.emailDelivery.to}.`);
+        setMessage(`Codes created and emailed to ${res.data.data.emailDelivery.to}.`);
       } else {
         setWarning(
           res.data.data.emailDelivery?.warning ??
-            "Codes generated successfully, but the email to the school could not be sent. Please download the CSV and share it manually."
+            "Codes were created, but the email to the school could not be sent. Download the CSV and share it with the school."
         );
       }
       await refreshSelectedSchool();
@@ -249,221 +253,267 @@ export default function CreateCodes() {
     URL.revokeObjectURL(url);
   }
 
+  const needsSeats = !!orgDetail && (!hasActiveSubscription || remainingCapacity <= 0);
+
   return (
     <PortalLayout items={adminNavItems}>
-      <h1 className="text-2xl font-semibold mb-6">Create Codes</h1>
+      <PageHeader
+        title="Create Codes"
+        description="Make the codes for a class and email them to the school."
+        action={
+          <Link to="/admin/guide" className="cx-link inline-flex min-h-11 items-center gap-1.5 text-sm">
+            <HelpCircle size={16} aria-hidden="true" />
+            How it works
+          </Link>
+        }
+      />
 
-      <div className="glass-card p-6 max-w-3xl space-y-5 mb-8">
-        <div>
-          <label className="text-sm text-cx-muted">School</label>
-          <select
+      <div className="mx-auto w-full max-w-3xl space-y-4">
+        {/* Step 1: school */}
+        <Step number={1} title="Choose the school" hint="Pick the school you are making codes for.">
+          <label htmlFor="create-codes-school" className="sr-only">
+            School
+          </label>
+          <Select
+            id="create-codes-school"
             value={selectedOrg}
             onChange={(e) => setSelectedOrg(e.target.value)}
-            className="w-full mt-1 px-3 py-2 rounded-lg bg-white/5 border border-cx-border text-sm"
+            className="cx-input w-full"
           >
-            <option value="" className="bg-cx-panel">Select a school</option>
+            <option value="">Select a school</option>
             {orgs.map((org) => (
-              <option key={org.organizationId} value={org.organizationId} className="bg-cx-panel">
+              <option key={org.organizationId} value={org.organizationId}>
                 {org.name}
               </option>
             ))}
-          </select>
-        </div>
+          </Select>
 
-        {/* Subscription and seat facts are read-only — they come from the
-            active subscription and are changed via Renew School. */}
-        {selectedOrg && (
-          <div className="rounded-lg border border-cx-border bg-white/5 p-4">
-            {loadingOrgDetail ? (
-              <p className="text-sm text-cx-muted">Loading subscription details...</p>
-            ) : !orgDetail ? (
-              <p className="text-sm text-red-400">Could not load subscription details for this school.</p>
-            ) : (
-              <div className="space-y-3">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-medium">{orgDetail.name}</span>
-                  <StatusBadge status={currentSubscription?.status ?? "NONE"} />
+          {selectedOrg && (
+            <div className="mt-4 rounded-xl border border-cx-border bg-cx-tint/50 p-4">
+              {loadingOrgDetail ? (
+                <p role="status" className="text-sm text-cx-muted">Loading school details...</p>
+              ) : !orgDetail ? (
+                <p role="alert" className="text-sm font-medium text-red-700">
+                  Could not load this school's details.
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="break-words font-semibold text-cx-heading">{orgDetail.name}</span>
+                    <StatusBadge status={currentSubscription?.status ?? "NONE"} />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                    <InfoField label="Plan" value={(currentSubscription?.planDuration ?? "NONE").replace(/_/g, " ")} />
+                    <InfoField label="Starts" value={formatAnyDate(currentSubscription?.startAt ?? null)} />
+                    <InfoField label="Ends" value={formatAnyDate(currentSubscription?.expiresAt ?? null)} />
+                    <InfoField label="Total seats" value={seatUsage?.seatLimit ?? 0} />
+                    <InfoField label="Students joined" value={seatUsage?.activatedSeats ?? 0} />
+                    <InfoField label="Unused codes" value={seatUsage?.unusedCodes ?? 0} />
+                  </div>
+                  <div className="flex items-center justify-between gap-3 rounded-lg bg-white px-3 py-2 ring-1 ring-cx-border">
+                    <span className="text-sm text-cx-muted">Seats left to make codes for</span>
+                    <span className="text-xl font-bold text-cx-accent">{remainingCapacity}</span>
+                  </div>
                 </div>
-                <div className="grid sm:grid-cols-3 gap-3 text-sm">
-                  <InfoField label="Plan" value={currentSubscription?.planDuration ?? "NONE"} />
-                  <InfoField label="Starts" value={formatAnyDate(currentSubscription?.startAt ?? null)} />
-                  <InfoField label="Expires" value={formatAnyDate(currentSubscription?.expiresAt ?? null)} />
-                  <InfoField label="Seat limit" value={seatUsage?.seatLimit ?? 0} />
-                  <InfoField label="Activated" value={seatUsage?.activatedSeats ?? 0} />
-                  <InfoField label="Unused codes" value={seatUsage?.unusedCodes ?? 0} />
-                </div>
-                <div className="pt-2 border-t border-cx-border">
-                  <InfoField label="Remaining capacity" value={remainingCapacity} highlight />
-                </div>
-              </div>
-            )}
-          </div>
-        )}
+              )}
+            </div>
+          )}
+        </Step>
 
+        {/* Step 2: sheet */}
         {selectedOrg && orgDetail && (
-          <>
-            <div>
-              <label className="text-sm text-cx-muted">Code sheet</label>
-              <select
-                value={batchSelection}
-                onChange={(e) => setBatchSelection(e.target.value)}
-                className="w-full mt-1 px-3 py-2 rounded-lg bg-white/5 border border-cx-border text-sm"
-              >
-                <option value={NEW_BATCH} className="bg-cx-panel">New sheet</option>
-                {pendingBatches.length > 0 && (
-                  <optgroup label="Awaiting code generation">
-                    {pendingBatches.map((batch) => (
-                      <option key={batch.batchName} value={batch.batchName} className="bg-cx-panel">
-                        {batch.batchName} — {batch.pendingSeats} seat(s) allocated
+          <Step
+            number={2}
+            title="Choose the code sheet"
+            hint="A sheet is a group of codes, usually one class. Pick the class that is waiting for codes."
+          >
+            {pendingBatches.length > 0 && (
+              <p className="mb-3 rounded-xl border border-cx-accent/20 bg-cx-tint px-3.5 py-2.5 text-sm text-cx-text">
+                <span className="font-semibold">Waiting for codes:</span>{" "}
+                {pendingBatches.map((batch) => `${batch.batchName} (${batch.pendingSeats})`).join(", ")}
+              </p>
+            )}
+
+            <label htmlFor="create-codes-sheet" className="sr-only">
+              Code sheet
+            </label>
+            <Select
+              id="create-codes-sheet"
+              value={batchSelection}
+              onChange={(e) => setBatchSelection(e.target.value)}
+              className="cx-input w-full"
+            >
+              <option value={NEW_BATCH}>New sheet</option>
+              {pendingBatches.length > 0 && (
+                <optgroup label="Waiting for codes">
+                  {pendingBatches.map((batch) => (
+                    <option key={batch.batchName} value={batch.batchName}>
+                      {batch.batchName} — {batch.pendingSeats} seat(s) waiting
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              {batches.filter((batch) => !batch.isPending).length > 0 && (
+                <optgroup label="Existing sheets">
+                  {batches
+                    .filter((batch) => !batch.isPending)
+                    .map((batch) => (
+                      <option key={batch.batchName} value={batch.batchName}>
+                        {batch.batchName} ({batch.codeCount} codes)
                       </option>
                     ))}
-                  </optgroup>
-                )}
-                {batches.filter((batch) => !batch.isPending).length > 0 && (
-                  <optgroup label="Existing sheets">
-                    {batches
-                      .filter((batch) => !batch.isPending)
-                      .map((batch) => (
-                        <option key={batch.batchName} value={batch.batchName} className="bg-cx-panel">
-                          {batch.batchName} ({batch.codeCount} codes)
-                        </option>
-                      ))}
-                  </optgroup>
-                )}
-              </select>
+                </optgroup>
+              )}
+            </Select>
 
-              {batchSelection === NEW_BATCH ? (
+            {batchSelection === NEW_BATCH ? (
+              <div className="mt-3 space-y-3">
+                {pendingBatches.length > 0 ? (
+                  <p className="cx-alert-warn">
+                    A class is still waiting for codes. Choose it above first. A new sheet uses all the seats that are
+                    left.
+                  </p>
+                ) : (
+                  <p className="text-sm text-cx-muted">Give the sheet a name, for example Class 5A.</p>
+                )}
                 <input
                   value={batchName}
                   onChange={(e) => setBatchName(e.target.value)}
-                  placeholder="New sheet name (optional)"
-                  className="w-full mt-2 px-3 py-2 rounded-lg bg-white/5 border border-cx-border text-sm"
-                />
-              ) : pendingSelection ? (
-                // Dates are inherited from the renewal that allocated this
-                // batch, and are not editable here.
-                <div className="mt-2 rounded-lg border border-cx-accent/40 bg-cx-accent/5 p-3 text-sm space-y-2">
-                  <div className="font-medium text-cx-accent2">
-                    Allocated in Renew School — {pendingSelection.pendingSeats} seat(s), codes not generated yet.
-                  </div>
-                  <div className="grid sm:grid-cols-2 gap-2 text-xs">
-                    <ReadOnlyField label="Starts (inherited)" value={formatIsoDate(pendingSelection.startAt)} />
-                    <ReadOnlyField label="Expires (inherited)" value={formatIsoDate(pendingSelection.expiresAt)} />
-                  </div>
-                  {pendingSelection.windowUpdatedAt && (
-                    <p className="text-xs text-amber-300">
-                      Dates updated by a later renewal on {formatIsoDate(pendingSelection.windowUpdatedAt)} — these are
-                      not the dates originally allocated.
-                    </p>
-                  )}
-                </div>
-              ) : (
-                <p className="mt-1 text-xs text-cx-muted">New codes will be added to this existing sheet.</p>
-              )}
-            </div>
-
-            <div>
-              <label className="text-sm text-cx-muted">Code type</label>
-              <div className="flex flex-wrap gap-2 mt-1">
-                <ModeButton active={mode === "RANDOM"} onClick={() => setMode("RANDOM")} label="Random unique codes" />
-                <ModeButton
-                  active={mode === "STUDENT_IDS"}
-                  onClick={() => setMode("STUDENT_IDS")}
-                  label="From student IDs"
+                  aria-label="New sheet name"
+                  placeholder="Sheet name (optional)"
+                  className="cx-input w-full"
                 />
               </div>
+            ) : pendingSelection ? (
+              // Dates come from the renewal that added these seats and cannot be changed here.
+              <div className="mt-3 rounded-xl border border-cx-accent bg-cx-tint p-3.5 text-sm">
+                <p className="font-medium text-cx-accent">
+                  This class has {pendingSelection.pendingSeats} seat(s) waiting. It will make exactly that many codes.
+                </p>
+                <p className="mt-1 text-xs text-cx-muted">
+                  Starts {formatIsoDate(pendingSelection.startAt)} · Ends {formatIsoDate(pendingSelection.expiresAt)}
+                </p>
+                {pendingSelection.windowUpdatedAt && (
+                  <p className="mt-2 text-xs text-amber-700">
+                    These dates were changed by a later renewal on {formatIsoDate(pendingSelection.windowUpdatedAt)}.
+                  </p>
+                )}
+              </div>
+            ) : (
+              <p className="mt-3 text-sm text-cx-muted">New codes will be added to this existing sheet.</p>
+            )}
+          </Step>
+        )}
+
+        {/* Step 3: how */}
+        {selectedOrg && orgDetail && (
+          <Step number={3} title="Choose how to make the codes" hint="Most schools use random codes.">
+            <div className="flex flex-wrap gap-2">
+              <ModeButton active={mode === "RANDOM"} onClick={() => setMode("RANDOM")} label="Random codes" />
+              <ModeButton
+                active={mode === "STUDENT_IDS"}
+                onClick={() => setMode("STUDENT_IDS")}
+                label="From student IDs"
+              />
             </div>
 
-            {mode === "STUDENT_IDS" && (
-              <div className="space-y-3">
-                <div className="flex gap-2 text-sm text-amber-300">
-                  <AlertTriangle size={18} className="shrink-0" />
+            {mode === "RANDOM" ? (
+              <p className="mt-3 text-sm text-cx-muted">Each code is made at random, so nobody can guess it.</p>
+            ) : (
+              <div className="mt-3 space-y-3">
+                <div className="cx-alert-warn flex gap-2">
+                  <AlertTriangle size={18} className="shrink-0" aria-hidden="true" />
                   <span>
-                    Note: these codes are derived from student IDs and are less random than auto-generated codes. Ensure
-                    student ID lists are not publicly guessable.
+                    These codes are made from the student IDs, so they are easier to guess. Make sure the ID list is not
+                    public.
                   </span>
                 </div>
                 <div>
-                  <label className="text-sm text-cx-muted">Student identifiers</label>
+                  <label htmlFor="create-codes-student-ids" className="cx-label">
+                    Student IDs
+                  </label>
                   <textarea
+                    id="create-codes-student-ids"
                     value={studentIdsText}
                     onChange={(e) => setStudentIdsText(e.target.value)}
                     rows={6}
-                    placeholder="One per line, or paste comma-separated values"
-                    className="w-full mt-1 px-3 py-2 rounded-lg bg-white/5 border border-cx-border focus:border-cx-accent outline-none text-sm"
+                    placeholder="One ID per line, or separate them with commas"
+                    className="cx-input mt-1 w-full"
                   />
                 </div>
               </div>
             )}
 
-            <div className="rounded-lg border border-cx-border bg-white/5 p-3 text-sm">
+            <p className="mt-4 rounded-xl border border-cx-border bg-cx-surface px-3.5 py-2.5 text-sm text-cx-text">
               {pendingSelection ? (
                 <>
-                  Will generate <span className="text-cx-accent2 font-semibold">{quantity}</span> code(s), fulfilling
-                  the seats allocated to "{pendingSelection.batchName}".
+                  This will make <span className="font-semibold text-cx-accent">{quantity}</span> code(s) for “
+                  {pendingSelection.batchName}”.
                 </>
               ) : mode === "STUDENT_IDS" ? (
                 <>
-                  Will generate <span className="text-cx-accent2 font-semibold">{quantity}</span> code(s) — one per
+                  This will make <span className="font-semibold text-cx-accent">{quantity}</span> code(s), one for each
                   student ID.
                 </>
               ) : (
                 <>
-                  Will generate <span className="text-cx-accent2 font-semibold">{quantity}</span> code(s) to fill the
-                  school's remaining seat capacity.
+                  This will make <span className="font-semibold text-cx-accent">{quantity}</span> code(s), using all the
+                  seats that are left.
                 </>
               )}
+            </p>
+          </Step>
+        )}
+
+        {/* Action */}
+        <div className="space-y-3">
+          {blockingReason && selectedOrg && !loadingOrgDetail && (
+            <div className="cx-alert-warn flex flex-wrap items-center justify-between gap-3">
+              <span>{blockingReason}</span>
+              {needsSeats && (
+                <Link to="/admin/subscriptions" className="cx-btn-secondary px-3 py-1.5">
+                  Open Renew School
+                </Link>
+              )}
             </div>
-          </>
-        )}
+          )}
+          {error && <p role="alert" className="cx-alert-error">{error}</p>}
+          {message && <p role="status" className="cx-alert-success">{message}</p>}
+          {warning && <p role="status" className="cx-alert-warn">{warning}</p>}
 
-        {blockingReason && selectedOrg && !loadingOrgDetail && (
-          <p className="text-sm text-amber-300">{blockingReason}</p>
-        )}
-        {error && <p className="text-sm text-red-400">{error}</p>}
-        {message && <p className="text-sm text-cx-accent2">{message}</p>}
-        {warning && <p className="text-sm text-amber-300">{warning}</p>}
-
-        <button
-          onClick={createCodes}
-          disabled={busy || !!blockingReason || quantity <= 0}
-          className="px-5 py-2.5 rounded-lg bg-cx-accent text-cx-bg font-medium disabled:opacity-50"
-        >
-          {busy ? "Creating..." : "Create Codes"}
-        </button>
-      </div>
-
-      {generated && (
-        <div className="max-w-4xl">
-          <p className="text-sm text-amber-300 mb-4">
-            Download these activation codes now. Full codes cannot be viewed again after leaving this page.
-          </p>
-          <DataTable
-            rows={generated}
-            columns={[
-              { header: "Code", render: (row) => <span className="font-mono">{row.plaintextCode}</span> },
-              { header: "Student ID", render: (row) => row.studentIdentifier ?? "-" },
-              { header: "License ID", render: (row) => <span className="text-xs">{row.licenseId}</span> },
-            ]}
-          />
           <button
-            onClick={downloadCsv}
-            className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-cx-border text-sm hover:border-cx-accent/50"
+            onClick={createCodes}
+            disabled={busy || !!blockingReason || quantity <= 0}
+            className="cx-btn-primary w-full py-3 sm:w-auto"
           >
-            <Download size={16} /> Download CSV
+            {busy ? "Creating..." : "Create Codes"}
           </button>
         </div>
-      )}
-    </PortalLayout>
-  );
-}
 
-function ReadOnlyField({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <div className="text-cx-muted">{label}</div>
-      <div className="font-medium">{value}</div>
-    </div>
+        {/* Result */}
+        {generated && (
+          <section aria-labelledby="your-codes" className="space-y-3">
+            <h2 id="your-codes" className="text-lg font-semibold">
+              Your codes
+            </h2>
+            <p className="cx-alert-warn">
+              Download these codes now. You cannot see the full codes again after you leave this page.
+            </p>
+            <DataTable
+              rows={generated}
+              columns={[
+                { header: "Code", render: (row) => <span className="font-mono">{row.plaintextCode}</span> },
+                { header: "Student ID", render: (row) => row.studentIdentifier ?? "-" },
+                { header: "License ID", render: (row) => <span className="text-xs">{row.licenseId}</span> },
+              ]}
+            />
+            <button onClick={downloadCsv} className="cx-btn-secondary w-full sm:w-auto">
+              <Download size={16} aria-hidden="true" /> Download CSV
+            </button>
+          </section>
+        )}
+      </div>
+    </PortalLayout>
   );
 }
 
@@ -473,11 +523,11 @@ function formatIsoDate(value: string | null) {
   return Number.isNaN(date.getTime()) ? "-" : date.toLocaleDateString();
 }
 
-function InfoField({ label, value, highlight = false }: { label: string; value: string | number; highlight?: boolean }) {
+function InfoField({ label, value }: { label: string; value: string | number }) {
   return (
-    <div>
-      <div className="text-xs text-cx-muted mb-1">{label}</div>
-      <div className={highlight ? "text-lg font-semibold text-cx-accent2" : "font-medium"}>{value}</div>
+    <div className="min-w-0">
+      <div className="text-[11px] font-medium uppercase tracking-wider text-cx-muted">{label}</div>
+      <div className="mt-0.5 break-words text-sm font-semibold text-cx-heading">{value}</div>
     </div>
   );
 }
@@ -487,8 +537,11 @@ function ModeButton({ active, onClick, label }: { active: boolean; onClick: () =
     <button
       type="button"
       onClick={onClick}
-      className={`px-3 py-2 rounded-lg text-sm border ${
-        active ? "border-cx-accent text-cx-accent" : "border-cx-border text-cx-muted"
+      aria-pressed={active}
+      className={`min-h-11 rounded-full border px-4 py-2 text-sm font-medium transition-colors ${
+        active
+          ? "border-cx-accent bg-cx-tint text-cx-accent"
+          : "border-cx-border bg-white text-cx-text hover:bg-cx-surface"
       }`}
     >
       {label}

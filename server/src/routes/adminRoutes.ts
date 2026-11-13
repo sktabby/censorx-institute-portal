@@ -37,6 +37,8 @@ router.delete("/admin/organizations/:organizationId", validateParams(orgIdParamS
 router.post("/admin/organizations/:organizationId/suspend", validateParams(orgIdParamSchema), asyncHandler(adminController.suspendOrganization));
 router.post("/admin/organizations/:organizationId/reactivate", validateParams(orgIdParamSchema), asyncHandler(adminController.reactivateOrganization));
 router.post("/admin/organizations/:organizationId/cancel", validateParams(orgIdParamSchema), asyncHandler(adminController.cancelOrganization));
+router.get("/admin/organizations/:organizationId/bill", validateParams(orgIdParamSchema), asyncHandler(adminController.getOrganizationBill));
+router.post("/admin/organizations/:organizationId/bill/send", validateParams(orgIdParamSchema), asyncHandler(adminController.sendOrganizationBill));
 
 router.post(
   "/admin/organizations/:organizationId/renew",

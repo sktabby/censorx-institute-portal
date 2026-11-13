@@ -48,7 +48,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await refreshProfile();
       } catch (err: any) {
         const message =
-          err?.response?.data?.error?.message ?? "You do not have access to the CensorX Institute Portal.";
+          err?.response?.data?.error?.message ?? "You do not have access to CensorX for Schools.";
         setError(message);
         await signOut(firebaseAuth);
       } finally {

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Globe, Mail, Phone, ShieldCheck, type LucideIcon } from "lucide-react";
+import { Globe, Mail, Phone, type LucideIcon } from "lucide-react";
 import { apiClient, type ApiResponse } from "../api/client";
 
 const planOptions = [
@@ -76,7 +76,7 @@ export default function Contact() {
         <div className="glass-card p-6 space-y-5">
           <div className="flex items-start gap-3">
             <div className="h-11 w-11 rounded-lg border border-cx-accent/40 bg-cx-accent/10 flex items-center justify-center">
-              <ShieldCheck className="text-cx-accent" size={22} />
+              <img src="/censorx-logo.png" alt="CensorX" className="h-[22px] w-[22px] object-contain" />
             </div>
             <div>
               <h2 className="font-semibold mb-1">Talk to the CensorX team</h2>

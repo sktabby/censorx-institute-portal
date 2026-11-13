@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Trash2 } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import PortalLayout from "../../layouts/PortalLayout";
+import PageHeader from "../../components/PageHeader";
+import Select from "../../components/Select";
+import SearchBox from "../../components/SearchBox";
 import DataTable from "../../components/DataTable";
 import StatusBadge from "../../components/StatusBadge";
 import { apiClient, type ApiResponse, type PagedResult } from "../../api/client";
@@ -71,41 +74,49 @@ export default function SchoolsList() {
 
   return (
     <PortalLayout items={adminNavItems}>
-      <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
-        <h1 className="text-2xl font-semibold">Schools</h1>
-        <Link to="/admin/schools/create" className="min-h-11 inline-flex items-center px-4 py-2 rounded-lg bg-cx-accent text-cx-bg text-sm font-medium">
-          Create School
-        </Link>
-      </div>
+      <PageHeader
+        title="Schools"
+        description="Search, review and manage every school on the platform."
+        action={
+          <Link to="/admin/schools/create" className="cx-btn-primary min-h-11 w-full sm:w-auto">
+            <Plus size={16} aria-hidden="true" />
+            Create School
+          </Link>
+        }
+      />
 
-      <div className="flex flex-wrap gap-3 mb-4">
-        <input
-          placeholder="Search by name, identifier, or email"
-          value={search}
-          onChange={(e) => {
-            setSearch(e.target.value);
-            setPage(1);
-          }}
-          className="px-3 py-2 rounded-lg bg-white/5 border border-cx-border focus:border-cx-accent outline-none text-sm flex-1 min-w-[240px]"
-        />
-        <select
+      <div className="mb-4 grid gap-3 sm:grid-cols-[1fr_200px]">
+        <SearchBox>
+          <input
+            aria-label="Search by name, identifier, or email"
+            placeholder="Search by name, identifier, or email"
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1);
+            }}
+            className="cx-input w-full pl-10"
+          />
+        </SearchBox>
+        <Select
+          aria-label="Filter by status"
           value={filter}
           onChange={(e) => {
             setFilter(e.target.value as typeof filter);
             setPage(1);
           }}
-          className="px-3 py-2 rounded-lg bg-white/5 border border-cx-border text-sm"
+          className="cx-input w-full"
         >
-          <option value="ALL" className="bg-cx-panel">All</option>
-          <option value="ACTIVE" className="bg-cx-panel">Active</option>
-          <option value="EXPIRED" className="bg-cx-panel">Expired</option>
-          <option value="SUSPENDED" className="bg-cx-panel">Suspended</option>
-          <option value="ARCHIVED" className="bg-cx-panel">Archived</option>
-        </select>
+          <option value="ALL">All</option>
+          <option value="ACTIVE">Active</option>
+          <option value="EXPIRED">Expired</option>
+          <option value="SUSPENDED">Suspended</option>
+          <option value="ARCHIVED">Archived</option>
+        </Select>
       </div>
 
-      {error && <p className="text-sm text-red-400 mb-3">{error}</p>}
-      {message && <p className="text-sm text-cx-accent2 mb-3">{message}</p>}
+      {error && <p role="alert" className="cx-alert-error mb-3">{error}</p>}
+      {message && <p role="status" className="cx-alert-success mb-3">{message}</p>}
 
       <DataTable
         rows={orgs}
@@ -120,15 +131,15 @@ export default function SchoolsList() {
             header: "Actions",
             render: (r) => (
               <div className="flex items-center gap-3">
-                <Link to={`/admin/schools/${r.organizationId}`} className="text-cx-accent hover:underline">
+                <Link to={`/admin/schools/${r.organizationId}`} className="cx-link">
                   View
                 </Link>
                 <button
                   onClick={() => deleteSchool(r)}
                   disabled={busyId === r.organizationId || r.activeCodesRemaining > 0}
-                  className="inline-flex items-center gap-1 text-red-300 hover:text-red-200 disabled:opacity-40"
+                  className="cx-link-danger"
                 >
-                  <Trash2 size={15} /> Delete
+                  <Trash2 size={15} aria-hidden="true" /> Delete
                 </button>
               </div>
             ),
@@ -136,19 +147,19 @@ export default function SchoolsList() {
         ]}
       />
 
-      <div className="flex items-center gap-3 mt-4 text-sm">
+      <div className="mt-4 flex items-center justify-between gap-2 text-sm sm:justify-start sm:gap-3">
         <button
           onClick={() => setPage((value) => Math.max(1, value - 1))}
           disabled={page <= 1}
-          className="px-3 py-1.5 rounded-lg border border-cx-border disabled:opacity-40"
+          className="cx-btn-secondary px-3 py-1.5"
         >
           Previous
         </button>
-        <span className="text-cx-muted">Page {page} of {totalPages}</span>
+        <span className="whitespace-nowrap text-center text-cx-muted">Page {page} of {totalPages}</span>
         <button
           onClick={() => setPage((value) => Math.min(totalPages, value + 1))}
           disabled={page >= totalPages}
-          className="px-3 py-1.5 rounded-lg border border-cx-border disabled:opacity-40"
+          className="cx-btn-secondary px-3 py-1.5"
         >
           Next
         </button>

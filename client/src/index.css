@@ -2,18 +2,130 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  background-color: #05070d;
-  background-image: radial-gradient(circle at 20% 0%, rgba(34, 211, 238, 0.06), transparent 40%),
-    radial-gradient(circle at 80% 20%, rgba(52, 211, 153, 0.05), transparent 40%);
+@layer base {
+  body {
+    background-color: #ffffff;
+    color: #111827;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1,
+  h2,
+  h3 {
+    color: #0b1220;
+  }
+
+  /* Visible keyboard focus on every interactive element (white-surface default). */
+  a:focus-visible,
+  button:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible {
+    outline: 2px solid #0f6b65;
+    outline-offset: 2px;
+  }
 }
 
-.glass-card {
-  @apply bg-cx-panel/70 border border-cx-border rounded-xl2 backdrop-blur-sm;
-}
+@layer components {
+  /* ---------- Surfaces ---------- */
+  .glass-card {
+    @apply bg-white border border-cx-border rounded-2xl shadow-card;
+  }
 
-.badge {
-  @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border;
+  /* White form card framed by a 4px dark teal top border. */
+  .cx-form-card {
+    @apply bg-white border border-cx-border border-t-4 border-t-cx-accent rounded-2xl shadow-card p-4 sm:p-6;
+  }
+
+  /* Filled teal card for stats and read-only information. White text only. */
+  .cx-teal-card {
+    @apply relative rounded-2xl bg-gradient-to-br from-cx-accent to-cx-hover p-4 text-white shadow-teal sm:p-6;
+  }
+
+  /* Larger hero card for dashboards. */
+  .cx-hero-card {
+    @apply relative overflow-hidden rounded-2xl bg-gradient-to-br from-cx-accent to-cx-deep p-4 text-white shadow-teal sm:p-6;
+  }
+
+  /* Soft tinted box for secondary information on white surfaces. */
+  .cx-well {
+    @apply rounded-xl border border-cx-accent/20 bg-cx-tint;
+  }
+
+  /* Focus ring flips to white on dark teal surfaces. */
+  .cx-teal-card a:focus-visible,
+  .cx-teal-card button:focus-visible,
+  .cx-teal-card input:focus-visible,
+  .cx-teal-card select:focus-visible,
+  .cx-hero-card a:focus-visible,
+  .cx-hero-card button:focus-visible,
+  .cx-sidebar a:focus-visible,
+  .cx-sidebar button:focus-visible {
+    outline: 2px solid #ffffff;
+    outline-offset: 2px;
+  }
+
+  .badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border;
+  }
+
+  /* ---------- Form controls (radius 12px) ---------- */
+  .cx-input {
+    @apply min-w-0 px-3 py-2 rounded-xl bg-white border border-cx-field text-sm text-cx-text placeholder:text-cx-muted transition-colors focus:border-cx-accent disabled:bg-cx-surface disabled:text-cx-muted;
+  }
+
+  .cx-label {
+    @apply text-sm font-medium text-cx-text;
+  }
+
+  /* ---------- Buttons (pills) ---------- */
+  .cx-btn-primary {
+    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-full bg-cx-accent text-white text-sm font-semibold shadow-sm transition-colors hover:bg-cx-hover active:bg-cx-deep disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-cx-accent;
+  }
+
+  .cx-btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2 rounded-full bg-white border border-cx-border text-sm font-medium text-cx-text transition-colors hover:bg-cx-tint hover:border-cx-accent/40 active:bg-cx-tint2 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white disabled:hover:border-cx-border;
+  }
+
+  .cx-btn-danger {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2 rounded-full bg-white border border-red-200 text-sm font-medium text-red-700 transition-colors hover:bg-red-50 active:bg-red-100 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white;
+  }
+
+  /* Primary action when it sits on a teal card. */
+  .cx-btn-light {
+    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-full bg-white text-cx-accent text-sm font-semibold transition-colors hover:bg-cx-tint2 active:bg-cx-tint disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  /* Secondary action on a dark surface. */
+  .cx-btn-outline-light {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2 rounded-full border border-white/20 text-sm font-medium text-white transition-colors hover:bg-white/10 active:bg-white/[0.15];
+  }
+
+  .cx-link {
+    @apply font-medium text-cx-accent underline-offset-2 transition-colors hover:text-cx-hover hover:underline;
+  }
+
+  .cx-link-danger {
+    @apply inline-flex items-center gap-1 rounded-lg px-2 font-medium text-red-700 transition-colors hover:bg-red-50 active:bg-red-100 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent;
+  }
+
+  /* ---------- Messages ---------- */
+  .cx-alert-error {
+    @apply rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700;
+  }
+
+  .cx-alert-warn {
+    @apply rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700;
+  }
+
+  .cx-alert-success {
+    @apply rounded-xl border border-cx-accent/30 bg-cx-tint px-3 py-2 text-sm text-cx-accent;
+  }
+
+  /* White logo artwork sits on a dark teal tile so it shows on light backgrounds. */
+  .cx-logo-tile {
+    @apply inline-flex shrink-0 items-center justify-center rounded-lg bg-cx-accent;
+  }
 }
 
 button,
@@ -21,4 +133,11 @@ input,
 select,
 textarea {
   min-height: 44px;
+}
+
+/* Checkboxes and radios keep their native size; their labels are the touch target. */
+input[type="checkbox"],
+input[type="radio"] {
+  min-height: 0;
+  accent-color: #0f6b65;
 }

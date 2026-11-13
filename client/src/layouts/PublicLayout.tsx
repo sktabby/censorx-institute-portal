@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, NavLink, Outlet } from "react-router-dom";
-import { Globe, Mail, Menu, ShieldCheck, X } from "lucide-react";
+import { Globe, Mail, Menu, X } from "lucide-react";
 
 const navItems = [
   { label: "Home", to: "/" },
@@ -16,7 +16,7 @@ export default function PublicLayout() {
       <header className="sticky top-0 z-40 border-b border-cx-border bg-cx-bg/90 backdrop-blur">
         <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-2 font-semibold text-lg">
-            <ShieldCheck className="text-cx-accent" size={22} />
+            <img src="/censorx-logo.png" alt="CensorX" className="h-[22px] w-[22px] object-contain" />
             CensorX.ai
           </Link>
 
@@ -71,7 +71,7 @@ export default function PublicLayout() {
         <div className="max-w-6xl mx-auto px-4 grid gap-5 md:grid-cols-[1fr_auto_1fr] md:items-center text-sm text-cx-muted">
           <div>
             <div className="flex items-center gap-2 font-medium text-cx-text mb-2">
-              <ShieldCheck className="text-cx-accent" size={18} />
+              <img src="/censorx-logo.png" alt="CensorX" className="h-[18px] w-[18px] object-contain" />
               CensorX.ai
             </div>
             <p>Privacy-first safety for schools and families.</p>

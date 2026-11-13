@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import PortalLayout from "../../layouts/PortalLayout";
+import PageHeader from "../../components/PageHeader";
 import AccountPasswordForm from "../../components/AccountPasswordForm";
 import StatusBadge from "../../components/StatusBadge";
 import { apiClient, type ApiResponse } from "../../api/client";
@@ -21,33 +22,48 @@ export default function Account() {
     });
   }, []);
 
+  const initial = (profile?.email ?? "").trim().charAt(0).toUpperCase() || "?";
+
   return (
     <PortalLayout items={schoolNavItems}>
-      <div className="glass-card p-6 mb-6 max-w-3xl">
-        <h1 className="text-2xl font-semibold mb-2">Account</h1>
-        <p className="text-sm text-cx-muted mb-6">
-          This is your CensorX Institute Portal login. Contact CensorX support if you need to update your registered email or transfer admin access.
-        </p>
+      <PageHeader title="Account" />
 
-        <div className="grid sm:grid-cols-2 gap-4 text-sm">
-          <InfoField label="School name" value={schoolInfo?.schoolName ?? "-"} />
-          <InfoField label="School identifier" value={schoolInfo?.schoolIdentifier ?? "-"} />
-          <InfoField label="Admin email" value={profile?.email ?? "-"} />
-          <InfoField label="Role" value={profile?.role ?? "-"} />
-          <InfoField label="Account status" value={profile?.status ? <StatusBadge status={profile.status} /> : "-"} />
-        </div>
+      <div className="mx-auto w-full max-w-2xl space-y-5">
+        {/* Profile */}
+        <section className="glass-card overflow-hidden">
+          <div className="flex items-center gap-4 p-5 sm:p-6">
+            <span className="inline-flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-cx-dark text-2xl font-bold text-white">
+              {initial}
+            </span>
+            <div className="min-w-0 flex-1">
+              <h2 className="break-words text-lg font-semibold leading-tight text-cx-heading">
+                {schoolInfo?.schoolName ?? "-"}
+              </h2>
+              <p className="mt-0.5 truncate text-sm text-cx-muted" title={profile?.email}>
+                {profile?.email ?? "-"}
+              </p>
+            </div>
+            {profile?.status && <StatusBadge status={profile.status} />}
+          </div>
+
+          <dl className="divide-y divide-cx-line border-t border-cx-line">
+            <Row label="School identifier" value={schoolInfo?.schoolIdentifier ?? "-"} />
+            <Row label="Admin email" value={profile?.email ?? "-"} />
+            <Row label="Role" value={profile?.role ? profile.role.replace(/_/g, " ") : "-"} />
+          </dl>
+        </section>
+
+        <AccountPasswordForm />
       </div>
-
-      <AccountPasswordForm />
     </PortalLayout>
   );
 }
 
-function InfoField({ label, value }: { label: string; value: ReactNode }) {
+function Row({ label, value }: { label: string; value: ReactNode }) {
   return (
-    <div>
-      <div className="text-xs text-cx-muted mb-1">{label}</div>
-      <div className="font-medium">{value}</div>
+    <div className="flex flex-col gap-0.5 px-5 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-6 sm:px-6">
+      <dt className="text-sm text-cx-muted">{label}</dt>
+      <dd className="break-all text-sm font-medium text-cx-heading sm:text-right">{value}</dd>
     </div>
   );
 }

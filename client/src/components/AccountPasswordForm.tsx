@@ -54,14 +54,14 @@ export default function AccountPasswordForm() {
   }
 
   return (
-    <form onSubmit={submit} className="glass-card p-6 max-w-xl space-y-4">
+    <form onSubmit={submit} className="glass-card space-y-4 p-4 sm:p-6">
       <div className="flex items-center gap-2">
-        <KeyRound size={18} className="text-cx-accent" />
-        <h1 className="text-xl font-semibold">Change Password</h1>
+        <KeyRound size={18} className="text-cx-accent" aria-hidden="true" />
+        <h2 className="text-lg font-semibold">Change Password</h2>
       </div>
 
       {profile?.mustChangePassword && (
-        <p className="text-sm text-amber-300">
+        <p className="cx-alert-warn">
           Your account was created with a temporary password. Set a new password to continue.
         </p>
       )}
@@ -70,14 +70,10 @@ export default function AccountPasswordForm() {
       <PasswordField label="New password" value={newPassword} onChange={setNewPassword} />
       <PasswordField label="Confirm new password" value={confirmPassword} onChange={setConfirmPassword} />
 
-      {error && <p className="text-sm text-red-400">{error}</p>}
-      {message && <p className="text-sm text-cx-accent2">{message}</p>}
+      {error && <p role="alert" className="cx-alert-error">{error}</p>}
+      {message && <p role="status" className="cx-alert-success">{message}</p>}
 
-      <button
-        type="submit"
-        disabled={busy}
-        className="px-5 py-2.5 rounded-lg bg-cx-accent text-cx-bg font-medium disabled:opacity-50"
-      >
+      <button type="submit" disabled={busy} className="cx-btn-primary w-full sm:w-auto">
         {busy ? "Updating..." : "Update Password"}
       </button>
     </form>
@@ -94,15 +90,15 @@ function PasswordField({
   onChange: (value: string) => void;
 }) {
   return (
-    <div>
-      <label className="text-sm text-cx-muted">{label}</label>
+    <label className="block">
+      <span className="cx-label">{label}</span>
       <input
         type="password"
         required
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full mt-1 px-3 py-2 rounded-lg bg-white/5 border border-cx-border focus:border-cx-accent outline-none"
+        className="cx-input mt-1 w-full"
       />
-    </div>
+    </label>
   );
 }

@@ -14,6 +14,7 @@ import {
 import { writeAuditLog } from "../repositories/auditLogRepository";
 import { ApiError } from "../middleware/errorHandler";
 import { sendBatchRenewalEmail, sendSchoolAdminWelcomeEmail } from "./emailService";
+import { buildPaymentRecord, sendBillForOrganization } from "./billService";
 import { carryOverStrandedLicenses, restoreCoverage } from "./coverageRenewalService";
 import { allocateBatch, listOrganizationBatches, repointPendingBatches } from "./batchService";
 import { hasActiveCodeStatuses } from "../utils/deleteGuards";
@@ -36,6 +37,8 @@ export interface RenewBatchesResult {
    * yet — it is generated from Create Codes.
    */
   allocatedBatch: { batchId: string; batchName: string; seatCount: number } | null;
+  /** Every batch allocated by this renewal, in order. `allocatedBatch` is the first of these. */
+  allocatedBatches: Array<{ batchId: string; batchName: string; seatCount: number }>;
   /**
    * Previously-allocated batches that were still awaiting code generation and
    * have been moved onto this renewal's window.
@@ -121,6 +124,8 @@ export async function createOrganization(input: CreateOrganizationInput, actorUi
   const organizationId = newDocId(Collections.organizations);
   const tempPassword = generateTemporaryPassword();
   let schoolAdminUid: string | undefined;
+  // Only present when the Create School form sent payment details.
+  const payment = input.payment ? buildPaymentRecord(input.payment, organizationId) : null;
 
   try {
     const authUser = await adminAuth.createUser({
@@ -153,6 +158,7 @@ export async function createOrganization(input: CreateOrganizationInput, actorUi
         currentSubscriptionId: null,
         billingReference: null,
         notes: null,
+        ...(payment ? { payment } : {}),
         createdAt: now,
         createdBy: actorUid,
         updatedAt: now,
@@ -186,7 +192,33 @@ export async function createOrganization(input: CreateOrganizationInput, actorUi
       metadata: { name: input.name, schoolAdminUid: authUser.uid },
     });
 
-    return { organizationId, schoolAdminUid: authUser.uid, emailSent: true };
+    // The bill is best-effort: the school already exists and the admin already has a
+    // login, so a failed bill email must never undo the school. The caller is told instead.
+    let billEmail: { sent: boolean; to: string; warning?: string } | undefined;
+    if (payment) {
+      try {
+        await sendBillForOrganization(
+          {
+            organizationId,
+            name: input.name,
+            contactName: input.contactName,
+            contactEmail: input.contactEmail,
+            contactPhone: input.contactPhone,
+          },
+          payment
+        );
+        billEmail = { sent: true, to: input.contactEmail };
+      } catch (err) {
+        logger.warn({ err, organizationId }, "School created but the bill email could not be sent");
+        billEmail = {
+          sent: false,
+          to: input.contactEmail,
+          warning: "The school was created, but the bill email could not be sent. You can resend it from the school page.",
+        };
+      }
+    }
+
+    return { organizationId, schoolAdminUid: authUser.uid, emailSent: true, billEmail };
   } catch (err) {
     await cleanupCreatedSchool({ uid: schoolAdminUid, organizationId });
     if (err instanceof ApiError) throw err;
@@ -309,9 +341,10 @@ export async function renewBatches(
   }
 
   const selectedBatchNames = Array.from(new Set(input.batchNames ?? []));
-  const newBatch = input.newBatch ?? null;
+  // One or several new classes: the single `newBatch` form and the `newBatches` list both work.
+  const newBatches = [...(input.newBatch ? [input.newBatch] : []), ...(input.newBatches ?? [])];
 
-  if (selectedBatchNames.length === 0 && !newBatch) {
+  if (selectedBatchNames.length === 0 && newBatches.length === 0) {
     throw new ApiError(
       400,
       "NOTHING_TO_RENEW",
@@ -319,8 +352,13 @@ export async function renewBatches(
     );
   }
 
-  if (newBatch && !newBatch.batchName?.trim()) {
+  if (newBatches.some((item) => !item.batchName?.trim())) {
     throw new ApiError(400, "BATCH_NAME_REQUIRED", "A name is required for the new batch.");
+  }
+
+  const newNames = newBatches.map((item) => item.batchName.trim().toLowerCase());
+  if (new Set(newNames).size !== newNames.length) {
+    throw new ApiError(409, "BATCH_NAME_TAKEN", "Each new class needs its own name.");
   }
 
   const batches = await listOrganizationBatches(organizationId);
@@ -331,11 +369,12 @@ export async function renewBatches(
     throw new ApiError(404, "BATCH_NOT_FOUND", `Code sheet not found: ${unknownBatch}`);
   }
 
-  if (newBatch && batchByName.has(newBatch.batchName.trim())) {
+  const takenName = newBatches.find((item) => batchByName.has(item.batchName.trim()));
+  if (takenName) {
     throw new ApiError(
       409,
       "BATCH_NAME_TAKEN",
-      `A batch named "${newBatch.batchName}" already exists for this school.`
+      `A batch named "${takenName.batchName}" already exists for this school.`
     );
   }
 
@@ -368,7 +407,15 @@ export async function renewBatches(
     return !isBeingRenewed && (license.status === "ACTIVE" || license.status === "UNUSED");
   }).length;
 
-  const seatLimit = input.seatLimit ?? renewedSeats + retainedSeats + (newBatch?.seatCount ?? 0);
+  // Classes still waiting for their codes hold seats too. They have no licences yet, so the
+  // count above cannot see them; without this, adding a class while another is still waiting
+  // quietly dropped the waiting class's seats from the limit.
+  const waitingSeats = batches
+    .filter((batch) => batch.isPending && !selectedSet.has(batch.batchName))
+    .reduce((sum, batch) => sum + batch.pendingSeats, 0);
+  const newSeats = newBatches.reduce((sum, item) => sum + item.seatCount, 0);
+
+  const seatLimit = input.seatLimit ?? renewedSeats + retainedSeats + waitingSeats + newSeats;
 
   const oldSubscription = await getActiveSubscription(organizationId);
   const newSubscriptionId = newDocId(Collections.organizationSubscriptions);
@@ -446,17 +493,21 @@ export async function renewBatches(
 
   // Seat-only allocation. Renew School never generates codes and never emails:
   // it reserves named, sized capacity that Create Codes fulfils later.
-  const allocated = newBatch
-    ? await allocateBatch({
+  const allocatedBatches: Array<{ batchId: string; batchName: string; seatCount: number }> = [];
+  for (const item of newBatches) {
+    allocatedBatches.push(
+      await allocateBatch({
         organizationId,
-        batchName: newBatch.batchName.trim(),
-        seatCount: newBatch.seatCount,
+        batchName: item.batchName.trim(),
+        seatCount: item.seatCount,
         subscriptionId: newSubscriptionId,
         startAt: newStartAt,
         expiresAt: newExpiresAt,
         actorUid,
       })
-    : null;
+    );
+  }
+  const allocated = allocatedBatches[0] ?? null;
 
   const seatUsage = await getOrganizationSeatUsage(organizationId, { seatLimit });
   await syncActivatedSeats(organizationId, seatUsage.activatedSeats, actorUid);
@@ -498,6 +549,7 @@ export async function renewBatches(
       studentsReactivated: restored?.studentsReactivated ?? 0,
       allocatedBatchName: allocated?.batchName ?? null,
       allocatedSeats: allocated?.seatCount ?? 0,
+      allocatedBatches: allocatedBatches.map((item) => ({ name: item.batchName, seats: item.seatCount })),
       repointedBatches,
       licensesCarriedOver: carriedOver.licensesCarried,
       seatLimit,
@@ -519,6 +571,7 @@ export async function renewBatches(
     studentsReactivated: restored?.studentsReactivated ?? 0,
     renewalEmail,
     allocatedBatch: allocated,
+    allocatedBatches,
     repointedBatches,
     seatLimit,
   };

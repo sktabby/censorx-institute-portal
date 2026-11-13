@@ -453,4 +453,87 @@ describe("renewBatches", () => {
       )
     ).rejects.toMatchObject({ code: "BATCH_NAME_TAKEN" });
   });
+
+  it("allocates several new classes in one renewal and counts all of their seats", async () => {
+    const { renewBatches } = await import("../organizationService");
+
+    const result = await renewBatches(
+      "org-1",
+      {
+        batchNames: ["alpha", "beta"],
+        newBatches: [
+          { batchName: "gamma", seatCount: 3 },
+          { batchName: "delta", seatCount: 4 },
+        ],
+        ...futureWindow,
+        idempotencyKey: "idem-many",
+      },
+      "super-admin"
+    );
+
+    expect(result.allocatedBatches.map((item) => item.batchName)).toEqual(["gamma", "delta"]);
+    expect(result.allocatedBatch?.batchName).toBe("gamma");
+    // 2 renewed seats + 3 + 4 allocated, all on a single new plan.
+    expect(result.seatLimit).toBe(9);
+
+    const allocations = Array.from(firestoreMock.getStore("organizationBatches").values());
+    expect(allocations).toHaveLength(2);
+    expect(allocations.every((item) => item.status === "PENDING")).toBe(true);
+    expect(allocations.every((item) => item.subscriptionId === result.subscriptionId)).toBe(true);
+
+    // Seats were reserved, but no codes were generated.
+    expect(firestoreMock.getStore("organizationActivationCodes").size).toBe(2);
+    expect(emailMocks.sendActivationCodesEmail).not.toHaveBeenCalled();
+  });
+
+  it("keeps the seats of a class that is still waiting for codes when another class is added", async () => {
+    const { renewBatches } = await import("../organizationService");
+
+    const first = await renewBatches(
+      "org-1",
+      {
+        batchNames: ["alpha", "beta"],
+        newBatch: { batchName: "gamma", seatCount: 3 },
+        ...futureWindow,
+        idempotencyKey: "idem-wait-1",
+      },
+      "super-admin"
+    );
+
+    const second = await renewBatches(
+      "org-1",
+      {
+        batchNames: [],
+        newBatches: [{ batchName: "delta", seatCount: 2 }],
+        planDuration: "YEARLY",
+        startAt: "2027-07-01T00:00:00.000Z",
+        expiresAt: "2028-07-01T00:00:00.000Z",
+        idempotencyKey: "idem-wait-2",
+      },
+      "super-admin"
+    );
+
+    // The waiting class (3 seats) still counts: previous limit + the 2 new seats.
+    expect(second.seatLimit).toBe(first.seatLimit + 2);
+  });
+
+  it("refuses two new classes with the same name", async () => {
+    const { renewBatches } = await import("../organizationService");
+
+    await expect(
+      renewBatches(
+        "org-1",
+        {
+          batchNames: [],
+          newBatches: [
+            { batchName: "Class 5A", seatCount: 2 },
+            { batchName: "class 5a", seatCount: 3 },
+          ],
+          ...futureWindow,
+          idempotencyKey: "idem-dup-new",
+        },
+        "super-admin"
+      )
+    ).rejects.toMatchObject({ code: "BATCH_NAME_TAKEN" });
+  });
 });

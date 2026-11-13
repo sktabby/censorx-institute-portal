@@ -4,4 +4,5 @@ export const schoolNavItems = [
   { label: "Students", to: "/school/students" },
   { label: "Subscription", to: "/school/subscription" },
   { label: "Account", to: "/school/account" },
+  { label: "Guide", to: "/school/guide" },
 ];

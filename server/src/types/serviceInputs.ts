@@ -1,10 +1,21 @@
-import type { PlanDuration } from "../models/types";
+import type { PaymentMethod, PaymentMethodDetails, PlanDuration } from "../models/types";
+
+/** Payment captured on the Create School form. */
+export interface OrganizationPaymentInput {
+  totalAmount: number;
+  paidAmount: number;
+  installments: number;
+  method?: PaymentMethod;
+  methodDetails?: PaymentMethodDetails;
+}
 
 export interface CreateOrganizationInput {
   name: string;
   contactName: string;
   contactEmail: string;
   contactPhone: string;
+  /** Optional: callers that do not send it (scripts, older clients) behave exactly as before. */
+  payment?: OrganizationPaymentInput;
 }
 
 export interface RenewSubscriptionInput {
@@ -50,6 +61,8 @@ export interface RenewBatchesInput {
   batchNames?: string[];
   /** Optional seat-only allocation made alongside the renewal. */
   newBatch?: RenewBatchesNewBatchInput;
+  /** Optional: several seat-only allocations in the same renewal. */
+  newBatches?: RenewBatchesNewBatchInput[];
   planDuration: PlanDuration;
   startAt: string;
   expiresAt: string;
