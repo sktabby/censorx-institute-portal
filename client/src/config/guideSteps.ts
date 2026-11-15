@@ -5,7 +5,10 @@ export const guideSteps = [
     title: "Set your own password",
     text: "On your first sign in you are taken to Account. Choose a new password to continue.",
   },
-  { title: "Receive your codes", text: "CensorX emails your activation codes to your school's contact email." },
+  {
+    title: "Receive your codes",
+    text: "CensorX emails your activation codes to your school's contact email. You can also download them any time from Download Codes.",
+  },
   { title: "Share the codes", text: "Give one code to each student's family. Each code can be used once." },
   {
     title: "Families activate",

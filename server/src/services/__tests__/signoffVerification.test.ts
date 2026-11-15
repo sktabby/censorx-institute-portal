@@ -122,8 +122,13 @@ vi.mock("../../config/firebaseAdmin", () => ({
 vi.mock("../../repositories/auditLogRepository", () => ({ writeAuditLog: vi.fn() }));
 vi.mock("../emailService", () => ({
   sendBatchRenewalEmail: vi.fn(),
+  sendBatchCreatedEmail: vi.fn(),
+  sendBatchEndingSoonEmail: vi.fn(),
+  sendBatchEndedEmail: vi.fn(),
+  sendRenewalOfferEmail: vi.fn(),
   sendActivationCodesEmail: vi.fn(),
   sendSchoolAdminWelcomeEmail: vi.fn(),
+  sendBillEmail: vi.fn(),
 }));
 
 const ts = (iso: string) => ({ toMillis: () => new Date(iso).getTime(), toDate: () => new Date(iso) });
@@ -183,9 +188,9 @@ const window2027 = {
 };
 
 // ---------------------------------------------------------------------------
-// 1. Seats after renewing 2 expired batches + adding 1 new batch
+// 1. Seats after renewing the ended batch and adding a new batch
 // ---------------------------------------------------------------------------
-describe("[1] seat totals after a combined batch renewal", () => {
+describe("[1] seat totals after a batch renewal plus a new batch", () => {
   beforeEach(() => {
     firestoreMock.reset();
     firestoreMock.seed("organizations", "org-1", {
@@ -209,40 +214,42 @@ describe("[1] seat totals after a combined batch renewal", () => {
     seedPair("live", "l2", "sub-live", "UNUSED", "UNUSED", null, FUTURE);
   });
 
-  it("derived total seats = renewed + new + untouched-active codes", async () => {
-    const { renewBatches } = await import("../organizationService");
-    const { getOrganizationSeatUsage } = await import("../../repositories/organizationRepository");
+  it("derived total seats = renewed batch + untouched live batch + new batch", async () => {
+    const { createBatch, renewBatch } = await import("../batchSubscriptionService");
+    const { getOrganizationSeatUsage, getSubscriptionSeatUsage } = await import("../../repositories/organizationRepository");
 
-    const result = await renewBatches(
+    const renewal = await renewBatch("org-1", "sub-old", { ...window2027, idempotencyKey: "idem-signoff-1" }, "super-admin");
+    const added = await createBatch(
       "org-1",
-      {
-        batchNames: ["alpha", "beta"],
-        newBatch: { batchName: "gamma", seatCount: 3 },
-        ...window2027,
-        idempotencyKey: "idem-signoff-1",
-      },
+      { ...window2027, classes: [{ batchName: "gamma", seatCount: 3 }], idempotencyKey: "idem-signoff-1b" },
       "super-admin"
     );
 
-    expect(result.licensesRestored).toBe(3);
-    expect(result.allocatedBatch).toMatchObject({ batchName: "gamma", seatCount: 3 });
+    // Both classes of the ended batch came back; the live batch was not touched.
+    expect(renewal.licensesRestored).toBe(3);
+    expect(renewal.classes).toEqual(["alpha", "beta"]);
+    expect(added.classes[0]).toMatchObject({ batchName: "gamma", seatCount: 3 });
+    expect(firestoreMock.getStore("organizationLicenses").get("lic-l1")?.subscriptionId).toBe("sub-live");
 
     const usage = await getOrganizationSeatUsage("org-1");
 
-    // Seats ALLOCATED: renewed(3) + untouched-active(2) + allocated(3) = 8.
-    expect(result.seatLimit).toBe(8);
-    expect(usage.seatLimit).toBe(8);
+    // Seats ALLOCATED across live batches: renewed(3) + untouched-live(3) + new(3) = 9.
+    expect(usage.seatLimit).toBe(9);
+    expect(firestoreMock.getStore("organizations").get("org-1")?.purchasedSeats).toBe(9);
 
-    // Seats ISSUED as licences: renewed(3) + untouched-active(2) = 5. The three
-    // allocated seats have no licences yet — Create Codes generates them.
+    // Seats ISSUED as licences: renewed(3) + untouched-live(2) = 5. The three new
+    // seats have no licences yet — Create Codes generates them.
     expect(usage.totalSeats).toBe(5);
     expect(usage.activatedSeats).toBe(1);
     expect(usage.unusedCodes).toBe(4);
     expect(usage.totalSeats).toBe(usage.activatedSeats + usage.unusedCodes);
 
-    // The gap is exactly the pending allocation, which is what Create Codes
-    // will consume.
-    expect(usage.remainingCapacity).toBe(3);
+    // Capacity is per batch: the new batch has exactly its three seats free, and the
+    // untouched live batch still has one (limit 3, two codes issued).
+    const newBatchUsage = await getSubscriptionSeatUsage("org-1", { subscriptionId: added.subscriptionId, seatLimit: added.seatLimit });
+    expect(newBatchUsage.remainingCapacity).toBe(3);
+    const liveBatchUsage = await getSubscriptionSeatUsage("org-1", { subscriptionId: "sub-live", seatLimit: 3 });
+    expect(liveBatchUsage.remainingCapacity).toBe(1);
   });
 });
 
@@ -326,7 +333,7 @@ describe("[3] student access after a batch renewal", () => {
   it("goes EXPIRED after the sweep, then ACTIVE again after renewal — verified via refreshEntitlement", async () => {
     const { runExpirySweep } = await import("../expirySweepService");
     const { refreshEntitlement } = await import("../redemptionService");
-    const { renewBatches } = await import("../organizationService");
+    const { renewBatch } = await import("../batchSubscriptionService");
 
     // Sweep locks the student out.
     await runExpirySweep({ now: new Date("2026-06-01T00:00:00.000Z") });
@@ -336,11 +343,7 @@ describe("[3] student access after a batch renewal", () => {
     expect(afterSweep.status).toBe("EXPIRED");
 
     // Renew the batch the student's licence belongs to.
-    const result = await renewBatches(
-      "org-1",
-      { batchNames: ["alpha"], ...window2027, idempotencyKey: "idem-signoff-3" },
-      "super-admin"
-    );
+    const result = await renewBatch("org-1", "sub-old", { ...window2027, idempotencyKey: "idem-signoff-3" }, "super-admin");
     expect(result.studentsReactivated).toBe(1);
 
     // Entitlement written by the renewal...

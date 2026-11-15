@@ -105,8 +105,8 @@ export default function SchoolStudents() {
                         {initial}
                       </span>
                       <div className="min-w-0">
-                        <p className="truncate font-semibold text-cx-heading">{row.studentName ?? "-"}</p>
-                        <p className="truncate text-xs text-cx-muted">{row.studentIdentifier ?? "-"}</p>
+                        <p className="break-words font-semibold text-cx-heading">{row.studentName ?? "-"}</p>
+                        <p className="break-words text-xs text-cx-muted">{row.studentIdentifier ?? "-"}</p>
                       </div>
                     </div>
                     <span className="lg:hidden">
@@ -116,13 +116,13 @@ export default function SchoolStudents() {
 
                   <div className="col-span-2 min-w-0 lg:col-span-1">
                     <Label>Parent</Label>
-                    <p className="truncate text-sm text-cx-text">{row.parentName ?? "-"}</p>
-                    <p className="truncate text-xs text-cx-muted">{row.parentEmail ?? "-"}</p>
+                    <p className="break-words text-sm text-cx-text">{row.parentName ?? "-"}</p>
+                    <p className="break-words text-xs text-cx-muted">{row.parentEmail ?? "-"}</p>
                   </div>
 
                   <div className="col-span-2 min-w-0 lg:col-span-1">
                     <Label>Device</Label>
-                    <p className="truncate text-sm text-cx-text">{row.deviceModel ?? "-"}</p>
+                    <p className="break-words text-sm text-cx-text">{row.deviceModel ?? "-"}</p>
                   </div>
 
                   <div className="hidden lg:block">

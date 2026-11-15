@@ -28,6 +28,17 @@ const envSchema = z
       .string()
       .min(32, "ORG_CODE_PEPPER must be a long, high-entropy secret (>=32 chars)"),
 
+    /**
+     * Encrypts the full activation codes stored for school download (AES-256-GCM).
+     * Optional: when missing, codes are not stored and the portal's download shows them as
+     * unavailable. Independent of ORG_CODE_PEPPER — changing one never affects the other.
+     * Rotating or losing this key makes every stored code unreadable; back it up.
+     */
+    CODE_VAULT_KEY: z.preprocess(
+      (value) => (value === "" ? undefined : value),
+      z.string().min(32, "CODE_VAULT_KEY must be a long, high-entropy secret (>=32 chars)").optional()
+    ),
+
     SMTP_HOST: optionalString,
     SMTP_PORT: optionalPort,
     SMTP_USER: optionalString,
@@ -70,6 +81,17 @@ const envSchema = z
       .string()
       .default("false")
       .transform((v) => v === "true"),
+
+    /**
+     * Batch notifications run right after the expiry sweep on the same schedule:
+     * "ends in N days" (email + in-app) and "batch ended" (email with our contact
+     * details + in-app). Disable to send nothing.
+     */
+    BATCH_NOTIFICATIONS_ENABLED: z
+      .string()
+      .default("true")
+      .transform((v) => v === "true"),
+    BATCH_REMINDER_DAYS: z.coerce.number().int().min(1).max(60).default(3),
   })
   .superRefine((val, ctx) => {
     const hasServiceAccountFile = !!val.GOOGLE_APPLICATION_CREDENTIALS;
@@ -102,4 +124,11 @@ const missingSmtpKeys = smtpKeys.filter((key) => !parsed.data[key]);
 if (missingSmtpKeys.length > 0) {
   // eslint-disable-next-line no-console
   console.warn(`SMTP email is not fully configured. Missing: ${missingSmtpKeys.join(", ")}`);
+}
+
+if (!parsed.data.CODE_VAULT_KEY) {
+  // eslint-disable-next-line no-console
+  console.warn(
+    "CODE_VAULT_KEY is not set. Full activation codes will not be stored, so schools cannot download them from the portal."
+  );
 }

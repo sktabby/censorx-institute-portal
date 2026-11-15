@@ -16,4 +16,8 @@ export const Collections = {
   userOrganizationEntitlements: "userOrganizationEntitlements",
   organizationAuditLogs: "organizationAuditLogs",
   instituteEnquiries: "instituteEnquiries",
+  /** Portal-only: in-app notices for schools. The Android app never reads this. */
+  organizationNotifications: "organizationNotifications",
+  /** Portal-only: encrypted full codes for school download. The Android app never reads this. */
+  organizationCodeVault: "organizationCodeVault",
 } as const;

@@ -19,7 +19,7 @@ export default function PageHeader({
         <div className="min-w-0 flex-1 basis-40">
           <h1 className="break-words text-xl font-bold leading-tight tracking-tight text-cx-heading">{title}</h1>
           {description && (
-            <p className="mt-0.5 line-clamp-2 max-w-3xl text-xs leading-snug text-cx-muted sm:text-sm">
+            <p className="mt-0.5 max-w-3xl text-xs leading-snug text-cx-muted sm:text-sm">
               {description}
             </p>
           )}

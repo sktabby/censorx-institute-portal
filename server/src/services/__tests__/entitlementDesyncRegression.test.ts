@@ -130,8 +130,13 @@ vi.mock("../../config/firebaseAdmin", () => ({ adminAuth: {}, db: firestoreMock.
 vi.mock("../../repositories/auditLogRepository", () => ({ writeAuditLog: vi.fn() }));
 vi.mock("../emailService", () => ({
   sendBatchRenewalEmail: vi.fn(),
+  sendBatchCreatedEmail: vi.fn(),
+  sendBatchEndingSoonEmail: vi.fn(),
+  sendBatchEndedEmail: vi.fn(),
+  sendRenewalOfferEmail: vi.fn(),
   sendActivationCodesEmail: vi.fn(),
   sendSchoolAdminWelcomeEmail: vi.fn(),
+  sendBillEmail: vi.fn(),
 }));
 
 const ts = (isoStr: string) => ({
@@ -243,46 +248,45 @@ describe("entitlement desync regression (2026-08-04 incident)", () => {
     seedSchool();
   });
 
-  it("renewal with empty renewedBatches must not break existing valid licences' entitlements", async () => {
-    const { renewBatches } = await import("../organizationService");
+  it("adding a new batch must not break existing valid licences' entitlements", async () => {
+    const { createBatch, renewBatch } = await import("../batchSubscriptionService");
     const { runExpirySweep } = await import("../expirySweepService");
     const { refreshEntitlement } = await import("../redemptionService");
 
-    // 1. Renew the batch the student is actually in.
-    await renewBatches(
+    // 1. Renew (early) the batch the student is actually in.
+    const first = await renewBatch(
       ORG,
+      "sub-current",
       {
-        batchNames: ["c"],
         planDuration: "YEARLY",
         startAt: "2026-08-04T00:00:00.000Z",
-        expiresAt: "2027-08-08T00:00:00.000Z",
+        expiresAt: "2028-08-08T00:00:00.000Z",
         idempotencyKey: "idem-regression-1",
       },
       "super-admin"
     );
     expect((await refreshEntitlement(STUDENT)).status).toBe("ACTIVE");
 
-    // 2. The trigger: a second renewal that renews NOTHING and only allocates
-    //    seats. This supersedes the subscription the licence sits on.
-    const second = await renewBatches(
+    // 2. The former trigger: a seat-only addition for new students. It is now its own
+    //    batch and must not touch the subscription the licence sits on.
+    const second = await createBatch(
       ORG,
       {
-        batchNames: [],
-        newBatch: { batchName: "new batch", seatCount: 10 },
         planDuration: "YEARLY",
         startAt: "2026-08-04T00:00:00.000Z",
         expiresAt: "2027-08-05T00:00:00.000Z",
+        classes: [{ batchName: "new batch", seatCount: 10 }],
         idempotencyKey: "idem-regression-2",
       },
       "super-admin"
     );
-    expect(second.renewedBatches).toEqual([]);
+    expect(second.batchLabel).toBe("Batch 2");
 
-    // Defect C: the live licence must not be stranded on the superseded record.
+    // Defect C: the live licence stays on its own (renewed) batch with that batch's dates.
     const liveLicence = firestoreMock.getStore("organizationLicenses").get("lic-live");
-    expect(liveLicence?.subscriptionId).toBe(second.subscriptionId);
-    // Carrying over must NOT hand out extra time.
-    expect((liveLicence?.expiresAt as any).toDate().toISOString()).toBe("2027-08-08T00:00:00.000Z");
+    expect(liveLicence?.subscriptionId).toBe(first.subscriptionId);
+    expect((liveLicence?.expiresAt as any).toDate().toISOString()).toBe("2028-08-08T00:00:00.000Z");
+    expect(firestoreMock.getStore("organizationSubscriptions").get(first.subscriptionId)?.status).toBe("ACTIVE");
 
     // Defect A: access survives the supersede.
     expect((await refreshEntitlement(STUDENT)).status).toBe("ACTIVE");

@@ -68,6 +68,22 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    match /organizationBatches/{batchId} {
+      // Class (sheet) records: seats reserved per class. Backend only.
+      allow read, write: if false;
+    }
+
+    match /organizationNotifications/{notificationId} {
+      // In-app notices for the school portal. Backend only.
+      allow read, write: if false;
+    }
+
+    match /organizationCodeVault/{licenseId} {
+      // Encrypted full activation codes for school download. Backend only —
+      // never readable by any client, and never used by redemption.
+      allow read, write: if false;
+    }
+
     // ------------------------------------------------------------------
     // Everything below this line is assumed to already exist for the
     // Android app (parent/child accounts, personal subscriptions, etc).

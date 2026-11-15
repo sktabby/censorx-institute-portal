@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Plus, Trash2 } from "lucide-react";
+import { Download, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { filenameFrom, saveBlob } from "../../types/batches";
 import PortalLayout from "../../layouts/PortalLayout";
+import ReplaceCodeDialog from "../../components/ReplaceCodeDialog";
 import PageHeader from "../../components/PageHeader";
 import Select from "../../components/Select";
 import SearchBox from "../../components/SearchBox";
 import Pagination from "../../components/Pagination";
 import DataTable from "../../components/DataTable";
+import { MobileActions, MobileField, MobileFields } from "../../components/MobileCard";
 import StatusBadge from "../../components/StatusBadge";
 import { apiClient, type ApiResponse, type PagedResult } from "../../api/client";
 import { adminNavItems } from "./navItems";
@@ -25,6 +28,7 @@ interface CodeRow {
   maskedCode: string;
   status: string;
   batchName: string | null;
+  batchLabel?: string | null;
   studentIdentifier: string | null;
   studentEmail: string | null;
   createdAt: string | null;
@@ -44,6 +48,7 @@ export default function CodesManagement() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [replaceTarget, setReplaceTarget] = useState<CodeRow | null>(null);
 
   useEffect(() => {
     apiClient.get<ApiResponse<PagedResult<OrgOption>>>("/admin/organizations?pageSize=100").then((res) => {
@@ -67,6 +72,41 @@ export default function CodesManagement() {
     if (res.data.success) {
       setRows(res.data.data.items);
       setTotalPages(res.data.data.totalPages);
+    }
+  }
+
+  /** Full codes of the chosen school as an Excel file (the same file the school can download). */
+  async function exportFullCodes() {
+    if (!selectedOrg) return;
+    setBusyId("export");
+    setError(null);
+    setMessage(null);
+    try {
+      const params = new URLSearchParams();
+      if (batchName.trim()) params.set("batchNames", batchName.trim());
+      const res = await apiClient.get(`/admin/organizations/${selectedOrg}/codes/export?${params.toString()}`, {
+        responseType: "blob",
+      });
+      saveBlob(res.data as Blob, filenameFrom(res.headers["content-disposition"], "activation-codes.xlsx"));
+      const unavailable = Number(res.headers["x-codes-unavailable"] ?? 0);
+      setMessage(
+        unavailable > 0
+          ? `Downloaded. ${unavailable} older code(s) were made before secure storage and show as "Not available".`
+          : "Downloaded."
+      );
+    } catch (err: any) {
+      let text = "The codes could not be downloaded.";
+      const data = err?.response?.data;
+      if (data instanceof Blob) {
+        try {
+          text = JSON.parse(await data.text())?.error?.message ?? text;
+        } catch {
+          // keep the default text
+        }
+      }
+      setError(text);
+    } finally {
+      setBusyId(null);
     }
   }
 
@@ -115,11 +155,29 @@ export default function CodesManagement() {
     return Array.from(map.entries());
   }, [rows]);
 
+  function rowActions(row: CodeRow) {
+    return (
+      <>
+        {row.status === "UNUSED" && (
+          <button onClick={() => setReplaceTarget(row)} className="cx-link inline-flex items-center gap-1 rounded-lg px-2">
+            <RefreshCw size={15} aria-hidden="true" /> Replace
+          </button>
+        )}
+        <button
+          onClick={() => deleteLicense(row.licenseId)}
+          disabled={busyId === row.licenseId || row.status === "DELETED"}
+          className="cx-link-danger"
+        >
+          <Trash2 size={15} aria-hidden="true" /> Delete
+        </button>
+      </>
+    );
+  }
+
   return (
     <PortalLayout items={adminNavItems}>
       <PageHeader
         title="Manage Codes"
-        description="Find, review and delete activation codes and code sheets across schools."
         action={
           <Link to="/admin/codes/create" className="cx-btn-primary min-h-11 w-full sm:w-auto">
             <Plus size={16} aria-hidden="true" />
@@ -158,8 +216,8 @@ export default function CodesManagement() {
           ))}
         </Select>
         <input
-          aria-label="Batch or sheet name"
-          placeholder="Batch / sheet name"
+          aria-label="Class name"
+          placeholder="Class name"
           value={batchName}
           onChange={(e) => {
             setBatchName(e.target.value);
@@ -181,6 +239,18 @@ export default function CodesManagement() {
         </SearchBox>
       </div>
 
+      {selectedOrg && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-cx-border bg-cx-surface px-3.5 py-2.5">
+          <span className="text-sm text-cx-muted">
+            Full codes for this school{batchName.trim() ? ` (class “${batchName.trim()}”)` : ""}, as an Excel file.
+          </span>
+          <button onClick={exportFullCodes} disabled={busyId === "export"} className="cx-btn-secondary w-full sm:w-auto">
+            <Download size={16} aria-hidden="true" />
+            {busyId === "export" ? "Preparing..." : "Download full codes"}
+          </button>
+        </div>
+      )}
+
       {error && <p role="alert" className="cx-alert-error mb-3">{error}</p>}
       {message && <p role="status" className="cx-alert-success mb-3">{message}</p>}
 
@@ -191,22 +261,36 @@ export default function CodesManagement() {
           { header: "School", render: (row) => row.schoolName },
           { header: "Status", render: (row) => <StatusBadge status={row.status} /> },
           { header: "Student", render: (row) => row.studentEmail ?? row.studentIdentifier ?? "-" },
-          { header: "Batch", render: (row) => row.batchName ?? "-" },
+          { header: "Class", render: (row) => row.batchName ?? "-" },
+          { header: "Batch", render: (row) => row.batchLabel ?? "-" },
           { header: "Created", render: (row) => formatDate(row.createdAt) },
           { header: "Redeemed", render: (row) => formatDate(row.redeemedAt) },
           {
-            header: "Delete",
-            render: (row) => (
-              <button
-                onClick={() => deleteLicense(row.licenseId)}
-                disabled={busyId === row.licenseId || row.status === "DELETED"}
-                className="cx-link-danger"
-              >
-                <Trash2 size={15} /> Delete
-              </button>
-            ),
+            header: "Actions",
+            render: (row) => <div className="flex items-center gap-1">{rowActions(row)}</div>,
           },
         ]}
+        mobileCard={(row) => (
+          <>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="font-mono text-sm font-semibold tracking-wide text-cx-heading">{row.maskedCode}</p>
+                <p className="break-words text-xs text-cx-muted">{row.schoolName}</p>
+              </div>
+              <StatusBadge status={row.status} />
+            </div>
+            <MobileFields>
+              <MobileField label="Class">
+                {row.batchName ?? "-"}
+                {row.batchLabel ? ` · ${row.batchLabel}` : ""}
+              </MobileField>
+              <MobileField label="Student">{row.studentEmail ?? row.studentIdentifier ?? "-"}</MobileField>
+              <MobileField label="Created">{formatDate(row.createdAt)}</MobileField>
+              <MobileField label="Redeemed">{formatDate(row.redeemedAt)}</MobileField>
+            </MobileFields>
+            <MobileActions>{rowActions(row)}</MobileActions>
+          </>
+        )}
       />
 
       <Pagination page={page} totalPages={totalPages} onPage={setPage} />
@@ -241,6 +325,21 @@ export default function CodesManagement() {
             );
           })}
         </div>
+      )}
+
+      {replaceTarget && (
+        <ReplaceCodeDialog
+          key={replaceTarget.licenseId}
+          target={replaceTarget}
+          onClose={(replaced) => {
+            setReplaceTarget(null);
+            if (replaced) {
+              setError(null);
+              setMessage("Code replaced. The old code no longer works.");
+              void refresh();
+            }
+          }}
+        />
       )}
     </PortalLayout>
   );

@@ -267,4 +267,85 @@ describe("runExpirySweep", () => {
     // Seats are not double-decremented by a repeat run.
     expect(firestoreMock.getStore("organizations").get("org-1")?.activatedSeats).toBe(0);
   });
+
+  it("keeps a school ACTIVE while another of its batches is live, and shrinks its seats to that batch", async () => {
+    const { runExpirySweep } = await import("../expirySweepService");
+
+    firestoreMock.seed("organizations", "org-1", {
+      organizationId: "org-1",
+      status: "ACTIVE",
+      currentSubscriptionId: "sub-2",
+      activatedSeats: 2,
+      purchasedSeats: 8,
+    });
+    firestoreMock.seed("organizationSubscriptions", "sub-1", {
+      subscriptionId: "sub-1",
+      organizationId: "org-1",
+      status: "ACTIVE",
+      expiresAt: PAST,
+      seatLimit: 5,
+      batchNumber: 1,
+    });
+    firestoreMock.seed("organizationSubscriptions", "sub-2", {
+      subscriptionId: "sub-2",
+      organizationId: "org-1",
+      status: "ACTIVE",
+      expiresAt: FUTURE,
+      seatLimit: 3,
+      batchNumber: 2,
+    });
+    // One student in each batch.
+    firestoreMock.seed("organizationLicenses", "lic-1", {
+      licenseId: "lic-1",
+      organizationId: "org-1",
+      subscriptionId: "sub-1",
+      status: "ACTIVE",
+      studentUid: "student-1",
+      expiresAt: PAST,
+    });
+    firestoreMock.seed("organizationLicenses", "lic-2", {
+      licenseId: "lic-2",
+      organizationId: "org-1",
+      subscriptionId: "sub-2",
+      status: "ACTIVE",
+      studentUid: "student-2",
+      expiresAt: FUTURE,
+    });
+    firestoreMock.seed("userOrganizationEntitlements", "student-1", {
+      uid: "student-1",
+      organizationId: "org-1",
+      licenseId: "lic-1",
+      subscriptionId: "sub-1",
+      status: "ACTIVE",
+    });
+    firestoreMock.seed("userOrganizationEntitlements", "student-2", {
+      uid: "student-2",
+      organizationId: "org-1",
+      licenseId: "lic-2",
+      subscriptionId: "sub-2",
+      status: "ACTIVE",
+    });
+
+    const result = await runExpirySweep({ now: NOW });
+
+    expect(result.subscriptionsExpired).toBe(1);
+    expect(result.licensesExpired).toBe(1);
+    expect(result.organizationsExpired).toBe(0);
+    expect(result.seatsReleased).toBe(1);
+
+    // Only Batch 1's student lost access.
+    expect(firestoreMock.getStore("organizationSubscriptions").get("sub-1")?.status).toBe("EXPIRED");
+    expect(firestoreMock.getStore("organizationSubscriptions").get("sub-2")?.status).toBe("ACTIVE");
+    expect(firestoreMock.getStore("userOrganizationEntitlements").get("student-1")?.status).toBe("EXPIRED");
+    expect(firestoreMock.getStore("userOrganizationEntitlements").get("student-2")?.status).toBe("ACTIVE");
+
+    const org = firestoreMock.getStore("organizations").get("org-1");
+    expect(org?.status).toBe("ACTIVE");
+    expect(org?.activatedSeats).toBe(1);
+    expect(org?.purchasedSeats).toBe(3);
+
+    // A second run changes nothing.
+    const second = await runExpirySweep({ now: NOW });
+    expect(second.writes).toBe(0);
+  });
 });

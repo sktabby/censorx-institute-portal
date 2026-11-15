@@ -63,7 +63,7 @@ export default function StatTile({
           <span className={`${iconBase} ${iconSize} ${compact ? "" : "sm:row-span-2"}`}>{icon}</span>
           <p
             className={`min-w-0 font-medium uppercase leading-tight tracking-wider text-white/70 ${labelSize} ${
-              compact ? "" : "sm:truncate"
+              compact ? "" : ""
             }`}
           >
             {label}

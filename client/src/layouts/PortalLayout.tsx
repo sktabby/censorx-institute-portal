@@ -1,9 +1,12 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, NavLink, useNavigate } from "react-router-dom";
 import {
+  Bell,
   BookOpen,
   Building2,
   CalendarClock,
+  FileDown,
+  FilePlus,
   HelpCircle,
   KeyRound,
   LayoutDashboard,
@@ -12,7 +15,6 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   PlusCircle,
-  RefreshCw,
   Ticket,
   UserCircle,
   Users,
@@ -21,6 +23,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import AppFooter from "../components/AppFooter";
+import { useUnreadNotifications } from "../hooks/useUnreadNotifications";
 
 interface NavItem {
   label: string;
@@ -31,8 +34,10 @@ interface NavItem {
 const NAV_ICONS: Record<string, LucideIcon> = {
   "/school": LayoutDashboard,
   "/school/codes": KeyRound,
+  "/school/download-codes": FileDown,
   "/school/students": Users,
   "/school/subscription": CalendarClock,
+  "/school/notifications": Bell,
   "/school/account": UserCircle,
   "/school/guide": BookOpen,
   "/admin": LayoutDashboard,
@@ -40,7 +45,7 @@ const NAV_ICONS: Record<string, LucideIcon> = {
   "/admin/schools/create": PlusCircle,
   "/admin/codes": KeyRound,
   "/admin/codes/create": Ticket,
-  "/admin/subscriptions": RefreshCw,
+  "/admin/subscriptions": FilePlus,
   "/admin/account": UserCircle,
   "/admin/guide": BookOpen,
 };
@@ -114,6 +119,8 @@ export default function PortalLayout({ items, children }: { items: NavItem[]; ch
   const portalTitle = isAdmin ? "Admin Portal" : "School Portal";
   const accountPath = items.find((item) => item.to.endsWith("/account"))?.to;
   const guidePath = items.find((item) => item.to.endsWith("/guide"))?.to;
+  const notificationsPath = items.find((item) => item.to.endsWith("/notifications"))?.to;
+  const unread = useUnreadNotifications(!!notificationsPath && profile?.role === "SCHOOL_ADMIN");
   // The Guide is reached from the "Need help?" button in the top bar, not from the sidebar.
   const sidebarItems = items.filter((item) => !item.to.endsWith("/guide"));
   const initial = (profile?.email ?? "").trim().charAt(0).toUpperCase() || "?";
@@ -214,7 +221,17 @@ export default function PortalLayout({ items, children }: { items: NavItem[]; ch
                         isActive ? "text-cx-bright" : ""
                       }`}
                     />
-                    <span className={`truncate ${hideLabel}`}>{item.label}</span>
+                    <span className={`break-words ${hideLabel}`}>{item.label}</span>
+                    {item.to === notificationsPath && unread > 0 && (
+                      <span
+                        aria-label={`${unread} unread`}
+                        className={`ml-auto inline-flex min-w-5 items-center justify-center rounded-full bg-cx-bright px-1.5 text-[11px] font-bold text-cx-night ${
+                          collapsed ? "md:absolute md:right-2 md:top-1.5 md:ml-0" : ""
+                        }`}
+                      >
+                        {unread > 99 ? "99+" : unread}
+                      </span>
+                    )}
                   </>
                 )}
               </NavLink>
@@ -252,7 +269,7 @@ export default function PortalLayout({ items, children }: { items: NavItem[]; ch
               {initial}
             </span>
             <div className={`min-w-0 ${hideLabel}`}>
-              <p className="truncate text-xs font-medium text-white" title={profile?.email}>
+              <p className="break-words text-xs font-medium text-white" title={profile?.email}>
                 {profile?.email}
               </p>
               <p className="text-[11px] text-white/50">{isAdmin ? "Super Admin" : "School Admin"}</p>
@@ -288,9 +305,27 @@ export default function PortalLayout({ items, children }: { items: NavItem[]; ch
             <Menu size={20} aria-hidden="true" />
           </button>
 
-          <span className="min-w-0 truncate text-lg font-bold tracking-tight text-cx-heading">{portalTitle}</span>
+          <span className="min-w-0 break-words text-base font-bold leading-tight tracking-tight text-cx-heading sm:text-lg">{portalTitle}</span>
 
           <div className="ml-auto flex items-center gap-2 sm:gap-3">
+            {notificationsPath && (
+              <Link
+                to={notificationsPath}
+                aria-label={unread > 0 ? `Notifications, ${unread} unread` : "Notifications"}
+                title="Notifications"
+                className="relative inline-flex h-11 w-11 items-center justify-center rounded-full border border-cx-border bg-white text-cx-text transition-colors hover:border-cx-accent/40 hover:bg-cx-tint"
+              >
+                <Bell size={18} aria-hidden="true" className="text-cx-accent" />
+                {unread > 0 && (
+                  <span
+                    aria-hidden="true"
+                    className="absolute -right-1 -top-1 inline-flex min-w-5 items-center justify-center rounded-full bg-red-600 px-1 text-[11px] font-bold leading-5 text-white ring-2 ring-white"
+                  >
+                    {unread > 99 ? "99+" : unread}
+                  </span>
+                )}
+              </Link>
+            )}
             {guidePath && (
               <Link
                 to={guidePath}

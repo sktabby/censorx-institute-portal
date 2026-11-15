@@ -7,7 +7,7 @@ import GetStartedDialog from "../components/GetStartedDialog";
 import AppFooter from "../components/AppFooter";
 
 export default function Login() {
-  const { login, profile, firebaseUser, error } = useAuth();
+  const { login, profile, firebaseUser, error, connectionProblem } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -97,6 +97,11 @@ export default function Login() {
               </div>
             </div>
 
+            {firebaseUser && connectionProblem && !localError && (
+              <div role="status" className="cx-alert-warn">
+                Signed in, but the CensorX server can't be reached right now. Retrying automatically…
+              </div>
+            )}
             {(localError || error) && (
               <div role="alert" className="cx-alert-error">
                 {localError ?? error}

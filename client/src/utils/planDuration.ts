@@ -37,6 +37,27 @@ export function dateInputToDate(value: string): Date | null {
   return new Date(year, month - 1, day);
 }
 
+/**
+ * Whole months a batch is billed for. Must stay identical to
+ * server/src/utils/planDuration.ts → billingMonths (the server re-checks the bill).
+ */
+export function billingMonths(plan: PlanDuration, startAt: Date, expiresAt: Date): number {
+  switch (plan) {
+    case "MONTHLY":
+      return 1;
+    case "THREE_MONTHS":
+      return 3;
+    case "SIX_MONTHS":
+      return 6;
+    case "YEARLY":
+      return 12;
+    default: {
+      const days = (expiresAt.getTime() - startAt.getTime()) / (24 * 60 * 60 * 1000);
+      return Math.max(1, Math.round(days / 30.4375));
+    }
+  }
+}
+
 export function calculatePlanExpiryDate(startDate: string, plan: PlanDuration) {
   const durationMs = planDurationToMs(plan);
   const start = dateInputToDate(startDate);

@@ -4,12 +4,17 @@ import {
   getEffectiveActivationCodeStatus,
   getEffectiveLicenseStatus,
   getEffectiveSubscriptionStatus,
+  isLiveBatch,
 } from "../repositories/organizationRepository";
+import { buildSeatUsage, type SeatUsage } from "../utils/seatAccounting";
+import { CODE_STATUS_FIELDS, LICENSE_DASHBOARD_FIELDS, LICENSE_STATUS_FIELDS, onlyFields } from "../utils/firestoreFields";
+import { amountDueNow, firstUnpaid, installmentViews, issuedBills, paymentTransactions, type InstallmentStatus } from "./paymentSchedule";
 import type {
   ActivationCodeStatus,
   OrganizationActivationCode,
   OrganizationBatch,
   OrganizationLicense,
+  OrganizationPayment,
   OrganizationSubscription,
 } from "../models/types";
 
@@ -29,6 +34,10 @@ export type BatchStatus = "PENDING" | "ACTIVE" | "PARTIALLY_EXPIRED" | "EXPIRED"
 export interface OrganizationBatchSummary {
   batchName: string;
   subscriptionId: string;
+  /** Label of the batch period this class sits on, e.g. "Batch 2". Null for legacy records. */
+  batchLabel: string | null;
+  /** Read-time status of that batch period (ACTIVE, EXPIRED, RENEWED, CANCELLED) or NONE. */
+  subscriptionStatus: string;
   codeCount: number;
   unusedCount: number;
   redeemedCount: number;
@@ -83,14 +92,7 @@ function resolveBatchStatus(summary: {
   return "PARTIALLY_EXPIRED";
 }
 
-/**
- * Records a named, sized seat allocation with no codes attached.
- *
- * Renew School owns seats and time; Create Codes owns codes and email. This is
- * the handoff between them — it reserves capacity under the renewal's own
- * window, and generation happens later against the inherited dates.
- */
-export async function allocateBatch(input: {
+export interface ClassRecordInput {
   organizationId: string;
   batchName: string;
   seatCount: number;
@@ -98,17 +100,18 @@ export async function allocateBatch(input: {
   startAt: FirebaseFirestore.Timestamp;
   expiresAt: FirebaseFirestore.Timestamp;
   actorUid: string;
-}): Promise<{ batchId: string; batchName: string; seatCount: number }> {
-  const batchId = newDocId(Collections.organizationBatches);
-  const now = serverTimestamp();
+}
 
-  await db.collection(Collections.organizationBatches).doc(batchId).set({
+/** The document written for a class (sheet) that has seats but no codes yet. */
+export function buildClassRecord(batchId: string, input: ClassRecordInput) {
+  const now = serverTimestamp();
+  return {
     batchId,
     organizationId: input.organizationId,
     batchName: input.batchName,
     subscriptionId: input.subscriptionId,
     seatCount: input.seatCount,
-    status: "PENDING",
+    status: "PENDING" as const,
     startAt: input.startAt,
     expiresAt: input.expiresAt,
     createdAt: now,
@@ -116,28 +119,43 @@ export async function allocateBatch(input: {
     updatedAt: now,
     generatedAt: null,
     windowUpdatedAt: null,
-  });
+  };
+}
 
+/**
+ * Records a named, sized seat allocation with no codes attached.
+ *
+ * The Subscription page owns seats and time; Create Codes owns codes and email. This
+ * is the handoff between them — it reserves capacity under the batch's own window,
+ * and generation happens later against those dates.
+ */
+export async function allocateBatch(input: ClassRecordInput): Promise<{ batchId: string; batchName: string; seatCount: number }> {
+  const batchId = newDocId(Collections.organizationBatches);
+  await db.collection(Collections.organizationBatches).doc(batchId).set(buildClassRecord(batchId, input));
   return { batchId, batchName: input.batchName, seatCount: input.seatCount };
 }
 
 /**
- * Re-points still-pending batches at a new subscription window.
+ * Moves the still-pending classes of ONE batch period onto the period that renewed it.
  *
- * Without this, allocating seats and then renewing again before generating
- * would leave the pending batch stranded on the old window, and Create Codes
- * would later issue codes that were already expired.
+ * Without this, adding a class and then renewing the batch before its codes were made
+ * would leave the class stranded on the old period, and Create Codes would later issue
+ * codes that were already expired. Classes of other batches are never touched.
  */
 export async function repointPendingBatches(input: {
   organizationId: string;
+  /** Only classes currently on this period move. */
+  fromSubscriptionId: string;
   subscriptionId: string;
   startAt: FirebaseFirestore.Timestamp;
   expiresAt: FirebaseFirestore.Timestamp;
 }): Promise<string[]> {
+  if (input.fromSubscriptionId === input.subscriptionId) return [];
+
   const pendingSnap = await db
     .collection(Collections.organizationBatches)
     .where("organizationId", "==", input.organizationId)
-    .where("status", "==", "PENDING")
+    .where("subscriptionId", "==", input.fromSubscriptionId)
     .get();
 
   if (pendingSnap.empty) return [];
@@ -146,9 +164,7 @@ export async function repointPendingBatches(input: {
   const batch = db.batch();
   pendingSnap.docs.forEach((doc) => {
     const record = doc.data() as OrganizationBatch;
-    // Already on this window (e.g. allocated by this same renewal) — nothing
-    // moved, so do not report it as changed.
-    if (record.subscriptionId === input.subscriptionId) return;
+    if (record.status !== "PENDING") return;
 
     repointed.push(record.batchName);
     batch.update(doc.ref, {
@@ -164,6 +180,36 @@ export async function repointPendingBatches(input: {
   await batch.commit();
 
   return repointed.sort();
+}
+
+/** Writes a new end date onto every class record of a batch period (used when a batch is extended). */
+export async function updateClassRecordsWindow(input: {
+  organizationId: string;
+  subscriptionId: string;
+  expiresAt: FirebaseFirestore.Timestamp;
+}): Promise<number> {
+  const snap = await db
+    .collection(Collections.organizationBatches)
+    .where("organizationId", "==", input.organizationId)
+    .where("subscriptionId", "==", input.subscriptionId)
+    .get();
+  if (snap.empty) return 0;
+
+  const batch = db.batch();
+  snap.docs.forEach((doc) => batch.update(doc.ref, { expiresAt: input.expiresAt, updatedAt: serverTimestamp() }));
+  await batch.commit();
+  return snap.size;
+}
+
+/** The class record for a sheet name, pending or not. */
+export async function findClassRecord(organizationId: string, batchName: string): Promise<OrganizationBatch | null> {
+  const snap = await db
+    .collection(Collections.organizationBatches)
+    .where("organizationId", "==", organizationId)
+    .where("batchName", "==", batchName)
+    .limit(1)
+    .get();
+  return snap.empty ? null : (snap.docs[0].data() as OrganizationBatch);
 }
 
 /** Marks an allocation as fulfilled once its codes have been generated. */
@@ -211,12 +257,21 @@ export interface SubscriptionHistoryRow {
   expiresAt: string | null;
   createdAt: string | null;
   renewedFromSubscriptionId: string | null;
-  /** 1 for the school's first subscription, incrementing along the renewal chain. */
+  /** 1 for the school's first period, incrementing along each renewal chain. */
   sequence: number;
+  /** True while this period is live (stored ACTIVE and inside its window). */
   isCurrent: boolean;
   /** Licenses currently attached to this subscription. */
   licenseCount: number;
   activeLicenseCount: number;
+  batchNumber: number;
+  batchLabel: string;
+  billNumber: string | null;
+}
+
+/** Display label for a batch period; records written before batches existed read as Batch 1. */
+export function batchLabelOf(subscription: Pick<OrganizationSubscription, "batchNumber" | "batchLabel">): string {
+  return subscription.batchLabel ?? `Batch ${subscription.batchNumber ?? 1}`;
 }
 
 /**
@@ -228,15 +283,10 @@ export interface SubscriptionHistoryRow {
  * corrupted link degrades to date ordering rather than dropping rows.
  */
 export async function listSubscriptionHistory(organizationId: string): Promise<SubscriptionHistoryRow[]> {
-  const [subscriptionsSnap, licensesSnap, orgSnap] = await Promise.all([
+  const [subscriptionsSnap, licensesSnap] = await Promise.all([
     db.collection(Collections.organizationSubscriptions).where("organizationId", "==", organizationId).get(),
     db.collection(Collections.organizationLicenses).where("organizationId", "==", organizationId).get(),
-    db.collection(Collections.organizations).doc(organizationId).get(),
   ]);
-
-  const currentSubscriptionId = orgSnap.exists
-    ? ((orgSnap.data() as { currentSubscriptionId?: string | null }).currentSubscriptionId ?? null)
-    : null;
 
   const now = new Date();
   const subscriptions = subscriptionsSnap.docs.map((doc) => doc.data() as OrganizationSubscription);
@@ -297,9 +347,12 @@ export async function listSubscriptionHistory(organizationId: string): Promise<S
       createdAt: timestampToIso(subscription.createdAt),
       renewedFromSubscriptionId: subscription.renewedFromSubscriptionId ?? null,
       sequence: index + 1,
-      isCurrent: subscription.subscriptionId === currentSubscriptionId,
+      isCurrent: isLiveBatch(subscription, now),
       licenseCount: counts.total,
       activeLicenseCount: counts.active,
+      batchNumber: subscription.batchNumber ?? 1,
+      batchLabel: batchLabelOf(subscription),
+      billNumber: subscription.payment?.billNumber ?? null,
     };
   });
 }
@@ -347,6 +400,8 @@ export async function listOrganizationBatches(organizationId: string): Promise<O
       summary = {
         batchName,
         subscriptionId: code.subscriptionId,
+        batchLabel: subscription ? batchLabelOf(subscription) : null,
+        subscriptionStatus: subscription ? getEffectiveSubscriptionStatus(subscription, now) : "NONE",
         codeCount: 0,
         unusedCount: 0,
         redeemedCount: 0,
@@ -385,6 +440,8 @@ export async function listOrganizationBatches(organizationId: string): Promise<O
       summary.createdAtMillis = createdMillis;
       summary.createdAt = timestampToIso(code.createdAt);
       summary.subscriptionId = code.subscriptionId;
+      summary.batchLabel = subscription ? batchLabelOf(subscription) : null;
+      summary.subscriptionStatus = subscription ? getEffectiveSubscriptionStatus(subscription, now) : "NONE";
       summary.expiresAt = subscription ? timestampToIso(subscription.expiresAt) : null;
     }
   }
@@ -399,13 +456,19 @@ export async function listOrganizationBatches(organizationId: string): Promise<O
       existing.startAt = timestampToIso(record.startAt);
       if (!existing.expiresAt) existing.expiresAt = timestampToIso(record.expiresAt);
       existing.pendingSeats = Math.max(0, record.seatCount - existing.codeCount);
+      // Codes added to a class that already has some ("Add codes to a class"): its record goes
+      // back to PENDING, and the extra seats wait in Create Codes like any new class.
+      existing.isPending = record.status === "PENDING" && existing.pendingSeats > 0;
       existing.windowUpdatedAt = timestampToIso(record.windowUpdatedAt);
       continue;
     }
 
+    const recordSubscription = subscriptionById.get(record.subscriptionId);
     byBatch.set(batchName, {
       batchName,
       subscriptionId: record.subscriptionId,
+      batchLabel: recordSubscription ? batchLabelOf(recordSubscription) : null,
+      subscriptionStatus: recordSubscription ? getEffectiveSubscriptionStatus(recordSubscription, now) : "NONE",
       codeCount: 0,
       unusedCount: 0,
       redeemedCount: 0,
@@ -430,9 +493,390 @@ export async function listOrganizationBatches(organizationId: string): Promise<O
   return Array.from(byBatch.values())
     .map(({ createdAtMillis, ...summary }) => ({
       ...summary,
-      status: summary.isPending ? ("PENDING" as const) : resolveBatchStatus(summary),
+      // A class with codes keeps the status of its codes, even while extra seats wait.
+      status: summary.isPending && summary.codeCount === 0 ? ("PENDING" as const) : resolveBatchStatus(summary),
       sortMillis: createdAtMillis === Number.MAX_SAFE_INTEGER ? 0 : createdAtMillis,
     }))
     .sort((a, b) => b.sortMillis - a.sortMillis)
     .map(({ sortMillis: _sortMillis, ...summary }) => summary);
+}
+
+// ---------------------------------------------------------------------------
+// Batch view: one entry per batch period, with its classes and seat usage.
+// ---------------------------------------------------------------------------
+
+export interface BatchClassView {
+  batchName: string;
+  seatCount: number;
+  codeCount: number;
+  unusedCount: number;
+  redeemedCount: number;
+  expiredCount: number;
+  revokedCount: number;
+  replacedCount: number;
+  deletedCount: number;
+  pendingSeats: number;
+  isPending: boolean;
+  status: BatchStatus;
+}
+
+/** What a school may see about a payment. Method details (cheque, UPI, card) stay admin-only. */
+export interface PaymentSchoolView {
+  billNumber: string;
+  billDate: string | null;
+  status: OrganizationPayment["status"];
+  totalAmount: number;
+  grossAmount: number;
+  discountPercent: number;
+  discountAmount: number;
+  /** Price per code per month, when the bill was priced that way. Used to price extra codes. */
+  amountPerCode: number | null;
+  /** Paid when the batch was set up, separate from the installments (0 on older bills). */
+  upfrontAmount: number;
+  paidAmount: number;
+  pendingAmount: number;
+  installments: number;
+  method: OrganizationPayment["method"];
+  description: string | null;
+  /** Installments with due dates and their state today. Empty for bills without a dated plan. */
+  schedule: Array<{
+    number: number;
+    amount: number;
+    dueDate: string;
+    paid: number;
+    remaining: number;
+    status: InstallmentStatus;
+    daysLate: number;
+  }>;
+  /** Past its due date and still unpaid. */
+  amountDueNow: number;
+  /** Any installment 7 or more days late. */
+  isOverdue: boolean;
+  nextDue: { number: number; dueDate: string; remaining: number } | null;
+  /** Every bill issued, newest last. */
+  bills: Array<{
+    billNumber: string;
+    issuedAt: string | null;
+    kind: "INVOICE" | "PAYMENT" | "ADJUSTMENT";
+    paidToDate: number;
+    balance: number;
+    note: string | null;
+    reason: "EXTRA_CODES" | "SCHEDULE_CHANGE" | null;
+  }>;
+  /** Payments received, oldest first. */
+  transactions: Array<{ transactionId: string; amount: number; paidAt: string | null; method: string; billNumber: string }>;
+}
+
+export interface PaymentAdminView extends PaymentSchoolView {
+  methodDetails: OrganizationPayment["methodDetails"];
+  transactionDetails: Array<{ transactionId: string; methodDetails: OrganizationPayment["methodDetails"] }>;
+}
+
+export interface BatchView {
+  subscriptionId: string;
+  batchNumber: number;
+  batchLabel: string;
+  planDuration: string;
+  startAt: string | null;
+  expiresAt: string | null;
+  createdAt: string | null;
+  /** Read-time status: ACTIVE, EXPIRED, RENEWED, CANCELLED, SUSPENDED. */
+  status: string;
+  storedStatus: string;
+  /** Stored ACTIVE and inside its window: students in these classes can use the app. */
+  isLive: boolean;
+  /** False for periods that were renewed (history); the renewing period is the one to act on. */
+  isCurrentPeriod: boolean;
+  /** Whole days until the end date; negative once ended. */
+  daysRemaining: number;
+  seatLimit: number;
+  seatUsage: SeatUsage;
+  classes: BatchClassView[];
+  renewedFromSubscriptionId: string | null;
+  renewedToSubscriptionId: string | null;
+  payment: PaymentSchoolView | PaymentAdminView | null;
+  notes: string | null;
+  cancelledAt: string | null;
+  /** Access stopped by the admin (status SUSPENDED). */
+  isPaused: boolean;
+  pausedAt: string | null;
+  pauseReason: string | null;
+  /** Renewal (marketing) emails after the period ended: false once the admin stopped them. */
+  renewalEmails: boolean;
+  /** How many renewal emails were sent after the period ended. */
+  renewalEmailsSent: number;
+}
+
+export function buildPaymentView(payment: OrganizationPayment | null | undefined, audience: "admin" | "school", now = new Date()) {
+  if (!payment) return null;
+  const views = installmentViews(payment, { asOf: now });
+  const next = firstUnpaid(views);
+  const transactions = paymentTransactions(payment);
+  const base: PaymentSchoolView = {
+    billNumber: payment.billNumber,
+    billDate: timestampToIso(payment.billDate),
+    status: payment.status,
+    totalAmount: payment.totalAmount,
+    grossAmount: payment.grossAmount ?? payment.totalAmount,
+    discountPercent: payment.discountPercent ?? 0,
+    discountAmount: payment.discountAmount ?? 0,
+    amountPerCode: payment.amountPerCode ?? null,
+    upfrontAmount: payment.upfrontAmount ?? 0,
+    paidAmount: payment.paidAmount,
+    pendingAmount: payment.pendingAmount,
+    installments: payment.installments,
+    method: payment.method,
+    description: payment.description ?? null,
+    schedule: views.map((item) => ({ ...item, dueDate: item.dueDate.toISOString() })),
+    amountDueNow: amountDueNow(payment, now),
+    isOverdue: views.some((item) => item.status === "OVERDUE"),
+    nextDue: next ? { number: next.number, dueDate: next.dueDate.toISOString(), remaining: next.remaining } : null,
+    bills: issuedBills(payment).map((bill) => ({
+      billNumber: bill.billNumber,
+      issuedAt: timestampToIso(bill.issuedAt),
+      kind: bill.kind,
+      paidToDate: bill.paidToDate,
+      balance: bill.balance,
+      note: bill.note ?? null,
+      reason: bill.reason ?? null,
+    })),
+    transactions: transactions.map((txn) => ({
+      transactionId: txn.transactionId,
+      amount: txn.amount,
+      paidAt: timestampToIso(txn.paidAt),
+      method: txn.method,
+      billNumber: txn.billNumber,
+    })),
+  };
+  return audience === "admin"
+    ? {
+        ...base,
+        methodDetails: payment.methodDetails,
+        transactionDetails: transactions.map((txn) => ({ transactionId: txn.transactionId, methodDetails: txn.methodDetails })),
+      }
+    : base;
+}
+
+/**
+ * Every batch period of a school with its classes, oldest batch first. Codes and class records
+ * are attributed to the period they currently sit on, so a renewed batch's classes show under
+ * the renewing period and the renewed (RENEWED) period reads as history.
+ */
+export async function listBatchSubscriptions(
+  organizationId: string,
+  options: { audience: "admin" | "school"; now?: Date }
+): Promise<BatchView[]> {
+  const data = await loadSchoolData(organizationId);
+  return buildBatchViews(data, options);
+}
+
+/** A school's batches, codes, licences and class records, each read once (trimmed to what views need). */
+export interface SchoolData {
+  subscriptions: OrganizationSubscription[];
+  codes: OrganizationActivationCode[];
+  /** Keyed by licence id. Only status/batch fields, plus dashboard fields when asked for. */
+  licenseById: Map<string, OrganizationLicense>;
+  records: OrganizationBatch[];
+}
+
+export async function loadSchoolData(organizationId: string, options: { withStudentDetails?: boolean } = {}): Promise<SchoolData> {
+  const byOrg = (name: string) => db.collection(name).where("organizationId", "==", organizationId);
+  const [subscriptionsSnap, codesSnap, licensesSnap, recordsSnap] = await Promise.all([
+    byOrg(Collections.organizationSubscriptions).get(),
+    onlyFields(byOrg(Collections.organizationActivationCodes), CODE_STATUS_FIELDS).get(),
+    onlyFields(byOrg(Collections.organizationLicenses), options.withStudentDetails ? LICENSE_DASHBOARD_FIELDS : LICENSE_STATUS_FIELDS).get(),
+    byOrg(Collections.organizationBatches).get(),
+  ]);
+  const licenseById = new Map<string, OrganizationLicense>();
+  licensesSnap.docs.forEach((doc) => licenseById.set(doc.id, { ...(doc.data() as OrganizationLicense), licenseId: doc.id }));
+  return {
+    subscriptions: subscriptionsSnap.docs.map((doc) => doc.data() as OrganizationSubscription),
+    codes: codesSnap.docs.map((doc) => doc.data() as OrganizationActivationCode),
+    licenseById,
+    records: recordsSnap.docs.map((doc) => doc.data() as OrganizationBatch),
+  };
+}
+
+/** Builds every batch view from data already read (see loadSchoolData). */
+export function buildBatchViews(data: SchoolData, options: { audience: "admin" | "school"; now?: Date }): BatchView[] {
+  const now = options.now ?? new Date();
+  const { subscriptions, licenseById } = data;
+  const subscriptionById = new Map(subscriptions.map((s) => [s.subscriptionId, s]));
+
+  const renewedTo = new Map<string, string>();
+  subscriptions.forEach((s) => {
+    if (s.renewedFromSubscriptionId) renewedTo.set(s.renewedFromSubscriptionId, s.subscriptionId);
+  });
+
+  // Classes per period, built from codes first and then class records.
+  const classesBySubscription = new Map<string, Map<string, BatchClassView>>();
+  const classFor = (subscriptionId: string, batchName: string) => {
+    let bucket = classesBySubscription.get(subscriptionId);
+    if (!bucket) {
+      bucket = new Map();
+      classesBySubscription.set(subscriptionId, bucket);
+    }
+    let view = bucket.get(batchName);
+    if (!view) {
+      view = {
+        batchName,
+        seatCount: 0,
+        codeCount: 0,
+        unusedCount: 0,
+        redeemedCount: 0,
+        expiredCount: 0,
+        revokedCount: 0,
+        replacedCount: 0,
+        deletedCount: 0,
+        pendingSeats: 0,
+        isPending: false,
+        status: "ACTIVE",
+      };
+      bucket.set(batchName, view);
+    }
+    return view;
+  };
+
+  data.codes.forEach((code) => {
+    const subscription = subscriptionById.get(code.subscriptionId);
+    const status = getEffectiveActivationCodeStatus(code, subscription, licenseById.get(code.licenseId), now);
+    const view = classFor(code.subscriptionId, code.batchName ?? "(unnamed)");
+    view.codeCount++;
+    if (status === "UNUSED") view.unusedCount++;
+    else if (status === "REDEEMED") view.redeemedCount++;
+    else if (status === "EXPIRED") view.expiredCount++;
+    else if (status === "REVOKED") view.revokedCount++;
+    else if (status === "REPLACED") view.replacedCount++;
+    else if (status === "DELETED") view.deletedCount++;
+  });
+
+  data.records.forEach((record) => {
+    const view = classFor(record.subscriptionId, record.batchName);
+    view.seatCount = record.seatCount;
+    view.pendingSeats = Math.max(0, record.seatCount - view.codeCount);
+    view.isPending = record.status === "PENDING" && view.pendingSeats > 0;
+  });
+
+  // Seat usage per period from the licences sitting on it.
+  const statusesBySubscription = new Map<string, OrganizationLicense["status"][]>();
+  licenseById.forEach((license) => {
+    const status = getEffectiveLicenseStatus(license, subscriptionById.get(license.subscriptionId), now);
+    const bucket = statusesBySubscription.get(license.subscriptionId) ?? [];
+    bucket.push(status);
+    statusesBySubscription.set(license.subscriptionId, bucket);
+  });
+
+  const DAY = 24 * 60 * 60 * 1000;
+
+  return subscriptions
+    .map((subscription): BatchView => {
+      const classes = Array.from(classesBySubscription.get(subscription.subscriptionId)?.values() ?? [])
+        .map((view) => {
+          if (view.seatCount === 0) view.seatCount = view.codeCount;
+          const renewableCount = view.codeCount - view.revokedCount - view.replacedCount - view.deletedCount;
+          const status: BatchStatus =
+            view.isPending || view.codeCount === 0 ? "PENDING" : resolveBatchStatus({ ...view, renewableCount });
+          return { ...view, status };
+        })
+        .sort((a, b) => a.batchName.localeCompare(b.batchName));
+
+      return {
+        subscriptionId: subscription.subscriptionId,
+        batchNumber: subscription.batchNumber ?? 1,
+        batchLabel: batchLabelOf(subscription),
+        planDuration: subscription.planDuration,
+        startAt: timestampToIso(subscription.startAt),
+        expiresAt: timestampToIso(subscription.expiresAt),
+        createdAt: timestampToIso(subscription.createdAt),
+        status: getEffectiveSubscriptionStatus(subscription, now),
+        storedStatus: subscription.status,
+        isLive: isLiveBatch(subscription, now),
+        isCurrentPeriod: subscription.status !== "RENEWED",
+        daysRemaining: Math.floor((timestampMillis(subscription.expiresAt) - now.getTime()) / DAY),
+        seatLimit: subscription.seatLimit,
+        seatUsage: buildSeatUsage({
+          effectiveStatuses: statusesBySubscription.get(subscription.subscriptionId) ?? [],
+          seatLimit: subscription.seatLimit,
+        }),
+        classes,
+        renewedFromSubscriptionId: subscription.renewedFromSubscriptionId ?? null,
+        renewedToSubscriptionId: renewedTo.get(subscription.subscriptionId) ?? null,
+        payment: buildPaymentView(subscription.payment, options.audience, now),
+        notes: subscription.notes ?? null,
+        cancelledAt: timestampToIso(subscription.cancelledAt),
+        isPaused: subscription.status === "SUSPENDED",
+        pausedAt: timestampToIso(subscription.pausedAt),
+        pauseReason: subscription.pauseReason ?? null,
+        renewalEmails: !subscription.renewalEmailsStoppedAt,
+        renewalEmailsSent: subscription.renewalOfferCount ?? 0,
+      };
+    })
+    .sort(
+      (a, b) =>
+        a.batchNumber - b.batchNumber ||
+        timestampMillis(subscriptionById.get(a.subscriptionId)?.createdAt) -
+          timestampMillis(subscriptionById.get(b.subscriptionId)?.createdAt)
+    );
+}
+
+/**
+ * The classes of a batch period with their number of codes: the seats reserved on the class
+ * record, or the number of codes made for classes that have no record (older data).
+ */
+export async function listClassSeatsForSubscription(
+  organizationId: string,
+  subscriptionId: string
+): Promise<Array<{ name: string; codes: number }>> {
+  const [recordsSnap, codesSnap] = await Promise.all([
+    db
+      .collection(Collections.organizationBatches)
+      .where("organizationId", "==", organizationId)
+      .where("subscriptionId", "==", subscriptionId)
+      .get(),
+    db
+      .collection(Collections.organizationActivationCodes)
+      .where("organizationId", "==", organizationId)
+      .where("subscriptionId", "==", subscriptionId)
+      .get(),
+  ]);
+  const seats = new Map<string, number>();
+  const codeCounts = new Map<string, number>();
+  codesSnap.docs.forEach((doc) => {
+    const code = doc.data() as OrganizationActivationCode;
+    if (!code.batchName || TERMINAL_CODE_STATUSES.has(code.status)) return;
+    codeCounts.set(code.batchName, (codeCounts.get(code.batchName) ?? 0) + 1);
+  });
+  recordsSnap.docs.forEach((doc) => {
+    const record = doc.data() as OrganizationBatch;
+    seats.set(record.batchName, record.seatCount);
+  });
+  codeCounts.forEach((count, name) => {
+    if (!seats.has(name)) seats.set(name, count);
+  });
+  return Array.from(seats.entries())
+    .map(([name, codes]) => ({ name, codes }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Names of the classes (sheets) that sit on a batch period, from its codes and class records. */
+export async function listClassNamesForSubscription(organizationId: string, subscriptionId: string): Promise<string[]> {
+  const [recordsSnap, codesSnap] = await Promise.all([
+    db
+      .collection(Collections.organizationBatches)
+      .where("organizationId", "==", organizationId)
+      .where("subscriptionId", "==", subscriptionId)
+      .get(),
+    db
+      .collection(Collections.organizationActivationCodes)
+      .where("organizationId", "==", organizationId)
+      .where("subscriptionId", "==", subscriptionId)
+      .get(),
+  ]);
+  const names = new Set<string>();
+  recordsSnap.docs.forEach((doc) => names.add((doc.data() as OrganizationBatch).batchName));
+  codesSnap.docs.forEach((doc) => {
+    const name = (doc.data() as OrganizationActivationCode).batchName;
+    if (name) names.add(name);
+  });
+  return Array.from(names).sort();
 }

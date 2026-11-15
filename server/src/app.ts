@@ -24,8 +24,13 @@ export function createApp() {
     cors({
       origin: allowedOrigins,
       credentials: true,
+      // Lets the portal read the file name and counts of a codes download.
+      exposedHeaders: ["Content-Disposition", "X-Codes-Rows", "X-Codes-Unavailable"],
     })
   );
+  // Create Codes sends the codes just made (Excel download) and student ID files: allow bigger
+  // bodies on these two admin-only paths. Everything else, the app included, keeps 1 MB.
+  app.use(["/api/v1/admin/codes/workbook", "/api/v1/admin/student-ids/parse"], express.json({ limit: "8mb" }));
   app.use(express.json({ limit: "1mb" }));
   app.use(pinoHttp({ logger }));
 

@@ -6,6 +6,7 @@ import PageHeader from "../../components/PageHeader";
 import Select from "../../components/Select";
 import SearchBox from "../../components/SearchBox";
 import DataTable from "../../components/DataTable";
+import { MobileActions, MobileField, MobileFields } from "../../components/MobileCard";
 import StatusBadge from "../../components/StatusBadge";
 import { apiClient, type ApiResponse, type PagedResult } from "../../api/client";
 import { adminNavItems } from "./navItems";
@@ -19,6 +20,43 @@ interface OrgRow {
   purchasedSeats: number;
   activatedSeats: number;
   activeCodesRemaining: number;
+  liveBatchCount?: number;
+  batchCount?: number;
+  nextExpiresAt?: string | null;
+  endingSoonCount?: number;
+  pausedCount?: number;
+  amountDue?: number;
+  overdueCount?: number;
+}
+
+const inr = (value: number) =>
+  new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(value);
+
+/** Small flags for a school: batches ending soon, access stopped, money overdue. */
+function Flags({ row }: { row: OrgRow }) {
+  const flags: Array<{ text: string; tone: string }> = [];
+  if (row.endingSoonCount) flags.push({ text: `${row.endingSoonCount} ending soon`, tone: "border-amber-200 bg-amber-50 text-amber-700" });
+  if (row.pausedCount) flags.push({ text: `${row.pausedCount} paused`, tone: "border-red-200 bg-red-50 text-red-700" });
+  if (row.amountDue) {
+    flags.push({
+      text: `${inr(row.amountDue)} ${row.overdueCount ? "overdue" : "due"}`,
+      tone: row.overdueCount ? "border-red-200 bg-red-50 text-red-700" : "border-amber-200 bg-amber-50 text-amber-700",
+    });
+  }
+  if (flags.length === 0) return <span className="text-xs text-cx-muted">-</span>;
+  return (
+    <span className="flex flex-wrap gap-1">
+      {flags.map((flag) => (
+        <span key={flag.text} className={`badge whitespace-nowrap ${flag.tone}`}>
+          {flag.text}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+function nextEnd(row: OrgRow) {
+  return row.nextExpiresAt ? new Date(row.nextExpiresAt).toLocaleDateString() : "-";
 }
 
 export default function SchoolsList() {
@@ -72,11 +110,27 @@ export default function SchoolsList() {
     }
   }
 
+  function rowActions(r: OrgRow) {
+    return (
+      <>
+        <Link to={`/admin/schools/${r.organizationId}`} className="cx-link inline-flex min-h-11 items-center">
+          View
+        </Link>
+        <button
+          onClick={() => deleteSchool(r)}
+          disabled={busyId === r.organizationId || r.activeCodesRemaining > 0}
+          className="cx-link-danger"
+        >
+          <Trash2 size={15} aria-hidden="true" /> Delete
+        </button>
+      </>
+    );
+  }
+
   return (
     <PortalLayout items={adminNavItems}>
       <PageHeader
         title="Schools"
-        description="Search, review and manage every school on the platform."
         action={
           <Link to="/admin/schools/create" className="cx-btn-primary min-h-11 w-full sm:w-auto">
             <Plus size={16} aria-hidden="true" />
@@ -122,29 +176,37 @@ export default function SchoolsList() {
         rows={orgs}
         columns={[
           { header: "School name", render: (r) => r.name },
-          { header: "Identifier", render: (r) => r.identifier },
-          { header: "Total seats", render: (r) => r.purchasedSeats },
-          { header: "Activated", render: (r) => r.activatedSeats },
-          { header: "Active codes", render: (r) => r.activeCodesRemaining },
+          { header: "Batches", render: (r) => (r.batchCount ? `${r.liveBatchCount ?? 0} live of ${r.batchCount}` : "None") },
+          { header: "Next end", render: (r) => nextEnd(r) },
+          { header: "Attention", render: (r) => <Flags row={r} /> },
+          { header: "Students", render: (r) => r.activatedSeats },
           { header: "Status", render: (r) => <StatusBadge status={r.status} /> },
           {
             header: "Actions",
-            render: (r) => (
-              <div className="flex items-center gap-3">
-                <Link to={`/admin/schools/${r.organizationId}`} className="cx-link">
-                  View
-                </Link>
-                <button
-                  onClick={() => deleteSchool(r)}
-                  disabled={busyId === r.organizationId || r.activeCodesRemaining > 0}
-                  className="cx-link-danger"
-                >
-                  <Trash2 size={15} aria-hidden="true" /> Delete
-                </button>
-              </div>
-            ),
+            render: (r) => <div className="flex items-center gap-3">{rowActions(r)}</div>,
           },
         ]}
+        mobileCard={(r) => (
+          <>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="break-words font-semibold text-cx-heading">{r.name}</p>
+                <p className="break-words text-xs text-cx-muted">{r.identifier}</p>
+              </div>
+              <StatusBadge status={r.status} />
+            </div>
+            <MobileFields>
+              <MobileField label="Batches">{r.batchCount ? `${r.liveBatchCount ?? 0} live of ${r.batchCount}` : "None"}</MobileField>
+              <MobileField label="Next end">{nextEnd(r)}</MobileField>
+              <MobileField label="Students">{r.activatedSeats}</MobileField>
+              <MobileField label="Active codes">{r.activeCodesRemaining}</MobileField>
+              <MobileField label="Attention" wide>
+                <Flags row={r} />
+              </MobileField>
+            </MobileFields>
+            <MobileActions>{rowActions(r)}</MobileActions>
+          </>
+        )}
       />
 
       <div className="mt-4 flex items-center justify-between gap-2 text-sm sm:justify-start sm:gap-3">

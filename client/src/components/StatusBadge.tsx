@@ -22,6 +22,8 @@ const STYLES: Record<string, string> = {
   PARTIALLY_EXPIRED: AMBER,
   RETIRED: GREY,
   NONE: GREY,
+  PAUSED: RED,
+  PENDING: GREY,
 };
 
 export default function StatusBadge({ status, tone = "light" }: { status: string; tone?: "light" | "dark" }) {

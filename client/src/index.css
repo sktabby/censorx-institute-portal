@@ -9,6 +9,31 @@
     -webkit-font-smoothing: antialiased;
   }
 
+  /* Theme scrollbars everywhere (page and every scrolling box): slim teal on light teal. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #7cc3bd #eef7f6;
+  }
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  *::-webkit-scrollbar-track {
+    background: #eef7f6;
+    border-radius: 999px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: #7cc3bd;
+    border-radius: 999px;
+    border: 2px solid #eef7f6;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background: #0f6b65;
+  }
+  *::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
   h1,
   h2,
   h3 {
@@ -30,6 +55,20 @@
   /* ---------- Surfaces ---------- */
   .glass-card {
     @apply bg-white border border-cx-border rounded-2xl shadow-card;
+  }
+
+  /*
+   * Scroll box for any list that can keep growing: it grows with its content up to a fixed
+   * height, then scrolls inside, so the page never gets endless. Shorter on phones.
+   * cx-scroll for regular lists, cx-scroll-sm for small side lists.
+   */
+  .cx-scroll {
+    @apply max-h-[20rem] overflow-y-auto overscroll-contain sm:max-h-[26rem];
+    scrollbar-width: thin;
+  }
+  .cx-scroll-sm {
+    @apply max-h-[14rem] overflow-y-auto overscroll-contain sm:max-h-[18rem];
+    scrollbar-width: thin;
   }
 
   /* White form card framed by a 4px dark teal top border. */

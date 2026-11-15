@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowRight, CalendarCheck, CalendarClock, GraduationCap, Hash, KeyRound, Layers } from "lucide-react";
+import { AlarmClock, ArrowRight, CalendarCheck, CalendarClock, GraduationCap, Hash, KeyRound, Layers } from "lucide-react";
 import PortalLayout from "../../layouts/PortalLayout";
-import StatTile from "../../components/StatTile";
+import ExpandableStatTile, { type TileDetailRow } from "../../components/ExpandableStatTile";
 import CountUp from "../../components/CountUp";
 import StatusBadge from "../../components/StatusBadge";
 import { apiClient, type ApiResponse } from "../../api/client";
+import { formatDate as formatShortDate, type BatchView } from "../../types/batches";
 import { schoolNavItems } from "./navItems";
 
 interface RecentActivation {
@@ -35,6 +36,12 @@ interface Dashboard {
   unusedCodes: number;
   revokedCodes: number;
   recentActivations: RecentActivation[];
+  organizationStatus?: string;
+  statusExplanation?: string;
+  liveBatchCount?: number;
+  batchCount?: number;
+  nextEndingBatch?: { batchLabel: string; expiresAt: string | null; daysRemaining: number } | null;
+  endingSoon?: Array<{ subscriptionId: string; batchLabel: string; expiresAt: string | null; daysRemaining: number }>;
 }
 
 // Geometry of the seat-usage ring (radius 44 in a 100x100 viewBox).
@@ -43,12 +50,53 @@ const RING_LENGTH = 2 * Math.PI * RING_RADIUS;
 
 export default function SchoolDashboard() {
   const [data, setData] = useState<Dashboard | null>(null);
+  const [batches, setBatches] = useState<BatchView[]>([]);
 
   useEffect(() => {
     apiClient.get<ApiResponse<Dashboard>>("/school/dashboard").then((res) => {
       if (res.data.success) setData(res.data.data);
     });
+    // Per-batch breakdown for the tiles (current periods only, newest first).
+    apiClient
+      .get<ApiResponse<{ batches: BatchView[] }>>("/school/subscription")
+      .then((res) => {
+        if (res.data.success) {
+          setBatches(
+            res.data.data.batches
+              .filter((batch) => batch.isCurrentPeriod)
+              .sort((a, b) => Number(b.isLive) - Number(a.isLive) || b.batchNumber - a.batchNumber)
+          );
+        }
+      })
+      .catch(() => setBatches([]));
   }, []);
+
+  const tileRows = useMemo(() => {
+    const tone = (batch: BatchView): TileDetailRow["tone"] => (batch.isPaused ? "warn" : batch.isLive ? "live" : "off");
+    const state = (batch: BatchView) => (batch.isPaused ? "Paused" : batch.isLive ? "Live" : batch.status === "CANCELLED" ? "Cancelled" : "Ended");
+    const live = batches.filter((batch) => batch.isLive).sort((a, b) => a.daysRemaining - b.daysRemaining);
+    return {
+      batches: batches.map((batch) => ({ key: batch.subscriptionId, label: asSubscription(batch.batchLabel), value: state(batch), tone: tone(batch) })),
+      ends: live.map((batch) => ({
+        key: batch.subscriptionId,
+        label: asSubscription(batch.batchLabel),
+        value: `${formatShortDate(batch.expiresAt)} · ${batch.daysRemaining}d`,
+        tone: batch.daysRemaining <= 14 ? ("warn" as const) : ("live" as const),
+      })),
+      redeemed: batches.map((batch) => ({
+        key: batch.subscriptionId,
+        label: asSubscription(batch.batchLabel),
+        value: `${batch.seatUsage.activatedSeats} of ${batch.seatLimit}`,
+        tone: tone(batch),
+      })),
+      unused: batches.map((batch) => ({
+        key: batch.subscriptionId,
+        label: asSubscription(batch.batchLabel),
+        value: batch.seatUsage.unusedCodes,
+        tone: tone(batch),
+      })),
+    };
+  }, [batches]);
 
   const seatUsage = useMemo(() => {
     const totalSeats = data?.totalStudentSeats ?? data?.totalSeats ?? 0;
@@ -58,7 +106,11 @@ export default function SchoolDashboard() {
   }, [data]);
 
   const plan = data?.planDuration ?? data?.plan ?? "No plan";
-  const status = data?.subscriptionStatus ?? "NONE";
+  const status = data?.organizationStatus ?? data?.subscriptionStatus ?? "NONE";
+  const batchLine =
+    data?.batchCount !== undefined && data.batchCount > 0
+      ? `${data.liveBatchCount ?? 0} of ${data.batchCount} subscription${data.batchCount === 1 ? "" : "s"} live`
+      : `Current plan: ${formatPlan(plan)}`;
   // Only the five most recent activations are listed; the full list lives on Students.
   const recent = (data?.recentActivations ?? []).slice(0, 5);
 
@@ -79,7 +131,7 @@ export default function SchoolDashboard() {
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2.5">
               <StatusBadge status={status} tone="dark" />
-              <span className="text-sm text-white/70">Current plan: {formatPlan(plan)}</span>
+              <span className="text-sm text-white/70">{batchLine}</span>
             </div>
             <h1 className="mt-4 break-words font-serif text-3xl font-semibold italic leading-tight tracking-tight sm:text-4xl">
               <span className="bg-gradient-to-r from-white via-white to-cx-bright bg-clip-text text-transparent">
@@ -124,20 +176,55 @@ export default function SchoolDashboard() {
         </div>
       </section>
 
-      {/* Stat tiles: two per row on phones, four on desktop */}
-      <div className="mb-8 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
-        <StatTile label="Plan" value={formatPlan(plan)} icon={<Layers size={20} />} delay={0} />
-        <StatTile label="Valid until" value={formatExpiry(data?.expiresAt)} icon={<CalendarClock size={20} />} delay={80} />
-        <StatTile
+      {/* Batches ending soon */}
+      {(data?.endingSoon ?? []).length > 0 && (
+        <Link
+          to="/school/subscription"
+          className="mb-5 flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3 text-sm text-amber-800 transition-colors hover:bg-amber-100"
+        >
+          <AlarmClock size={16} aria-hidden="true" className="mt-0.5 shrink-0" />
+          <span>
+            {data!.endingSoon!
+              .map((item) => `${asSubscription(item.batchLabel)} ends ${item.daysRemaining === 0 ? "today" : `in ${item.daysRemaining} day${item.daysRemaining === 1 ? "" : "s"}`}`)
+              .join(" · ")}
+            . Contact CensorX to renew — the same codes keep working.
+          </span>
+        </Link>
+      )}
+
+      {/* Stat tiles: two per row on phones, four on desktop. Tap one to see each subscription in a popup. */}
+      <div className="mb-8 grid grid-cols-2 items-start gap-2.5 sm:gap-4 lg:grid-cols-4">
+        <ExpandableStatTile
+          label="Subscriptions"
+          value={data?.batchCount !== undefined ? `${data.liveBatchCount ?? 0} live of ${data.batchCount}` : formatPlan(plan)}
+          icon={<Layers size={18} />}
+          rows={tileRows.batches}
+          popupAlign="left-0"
+          delay={0}
+        />
+        <ExpandableStatTile
+          label={data?.nextEndingBatch ? `Next end (${asSubscription(data.nextEndingBatch.batchLabel)})` : "Valid until"}
+          value={formatExpiry(data?.nextEndingBatch?.expiresAt ?? data?.expiresAt)}
+          icon={<CalendarClock size={18} />}
+          rows={tileRows.ends}
+          popupAlign="right-0 lg:left-0 lg:right-auto"
+          emptyText="No live subscriptions."
+          delay={80}
+        />
+        <ExpandableStatTile
           label="Redeemed students"
           value={<CountUp value={seatUsage.usedSeats} />}
-          icon={<GraduationCap size={20} />}
+          icon={<GraduationCap size={18} />}
+          rows={tileRows.redeemed}
+          popupAlign="left-0"
           delay={160}
         />
-        <StatTile
+        <ExpandableStatTile
           label="Unused codes"
           value={<CountUp value={data?.unusedCodes ?? 0} />}
-          icon={<KeyRound size={20} />}
+          icon={<KeyRound size={18} />}
+          rows={tileRows.unused}
+          popupAlign="right-0"
           delay={240}
         />
       </div>
@@ -178,7 +265,7 @@ export default function SchoolDashboard() {
                     </span>
                     <div className="min-w-0 flex-1 rounded-2xl border border-cx-border bg-white p-3.5 transition duration-200 hover:-translate-y-0.5 hover:border-cx-accent/40 hover:shadow-card motion-reduce:transition-none">
                       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
-                        <p className="min-w-0 truncate font-semibold text-cx-heading">{name}</p>
+                        <p className="min-w-0 break-words font-semibold text-cx-heading">{name}</p>
                         <StatusBadge status={row.status} />
                       </div>
                       <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-cx-muted">
@@ -201,6 +288,11 @@ export default function SchoolDashboard() {
       </section>
     </PortalLayout>
   );
+}
+
+/** "Batch 2" → "Subscription 2": schools see their batches as subscriptions on the dashboard. */
+function asSubscription(label: string) {
+  return label.replace(/^Batch/, "Subscription");
 }
 
 function formatPlan(value: string | null) {

@@ -5,6 +5,8 @@ import {
   getEffectiveActivationCodeStatus,
   getEffectiveLicenseStatus,
   getEffectiveSubscriptionStatus,
+  isLiveBatch,
+  sumLiveSeatLimit,
 } from "../repositories/organizationRepository";
 import { writeAuditLog } from "../repositories/auditLogRepository";
 import type {
@@ -214,23 +216,38 @@ export async function runExpirySweep(
     result.codesExpired++;
   });
 
-  // 4. Release seats and flag schools whose current subscription has lapsed.
+  // 4. Release seats, shrink the purchased-seat aggregate to the batches still live, and
+  //    flag schools whose EVERY batch has ended. A school with one ended batch and one live
+  //    batch stays ACTIVE: only the ended batch's students lose access.
+  const subscriptionsByOrg = new Map<string, OrganizationSubscription[]>();
+  subscriptionsSnap.docs.forEach((doc) => {
+    const subscription = doc.data() as OrganizationSubscription;
+    const bucket = subscriptionsByOrg.get(subscription.organizationId) ?? [];
+    bucket.push(subscription);
+    subscriptionsByOrg.set(subscription.organizationId, bucket);
+  });
+
   orgsSnap.docs.forEach((doc) => {
     const org = doc.data() as Organization;
     const released = seatsReleasedByOrg.get(org.organizationId) ?? 0;
-    const currentSubscription = org.currentSubscriptionId
-      ? subscriptionById.get(org.currentSubscriptionId)
-      : undefined;
-    const subscriptionLapsed =
-      !!currentSubscription && getEffectiveSubscriptionStatus(currentSubscription, now) === "EXPIRED";
-    const shouldExpireOrg = org.status === "ACTIVE" && subscriptionLapsed;
+    const orgSubscriptions = subscriptionsByOrg.get(org.organizationId) ?? [];
+    const hasBatches = orgSubscriptions.length > 0;
+    const anyLive = orgSubscriptions.some((subscription) => isLiveBatch(subscription, now));
+    const shouldExpireOrg = org.status === "ACTIVE" && hasBatches && !anyLive;
 
-    if (released === 0 && !shouldExpireOrg) return;
+    const livePurchased = sumLiveSeatLimit(orgSubscriptions, now);
+    const purchasedChanged =
+      hasBatches && org.status !== "ARCHIVED" && org.status !== "SUSPENDED" && (org.purchasedSeats ?? 0) !== livePurchased;
+
+    if (released === 0 && !shouldExpireOrg && !purchasedChanged) return;
 
     const update: Record<string, unknown> = { updatedAt: serverTimestamp() };
     if (released > 0) {
       update.activatedSeats = Math.max(0, (org.activatedSeats ?? 0) - released);
       result.seatsReleased += released;
+    }
+    if (purchasedChanged) {
+      update.purchasedSeats = livePurchased;
     }
     if (shouldExpireOrg) {
       update.status = "EXPIRED";

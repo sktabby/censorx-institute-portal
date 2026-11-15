@@ -173,7 +173,7 @@ export default function Select({
         onClick={() => (open ? setOpen(false) : openList())}
         className={`${className} flex items-center justify-between gap-2 text-left`}
       >
-        <span className="min-w-0 truncate">{selected?.label ?? ""}</span>
+        <span className="min-w-0 break-words">{selected?.label ?? ""}</span>
         <ChevronDown
           size={16}
           aria-hidden="true"

@@ -2,7 +2,20 @@ import type { PaymentMethod, PaymentMethodDetails, PlanDuration } from "../model
 
 /** Payment captured on the Create School form. */
 export interface OrganizationPaymentInput {
+  /** Optional price per code per month. */
+  amountPerCode?: number;
+  /** Amount before discount, when typed by hand. */
+  grossAmount?: number;
+  /** Discount on the overall amount, in percent (0–100). */
+  discountPercent?: number;
+  /** Amount payable after any discount. */
   totalAmount: number;
+  /** One due date per installment (ISO strings), chosen by the admin. */
+  installmentDueDates?: string[];
+  /** Optional amount per installment, adding up to the total. Equal parts when left out. */
+  installmentAmounts?: number[];
+  /** The installments split the balance left after the amount paid now (paid now is separate). */
+  splitBalance?: boolean;
   paidAmount: number;
   installments: number;
   method?: PaymentMethod;
@@ -47,30 +60,34 @@ export interface CreateCodesWithSubscriptionInput extends Omit<GenerateCodesInpu
 }
 
 /**
- * Seat-only allocation made as part of a batch-wise renewal. Deliberately has
- * no code-generation fields: the batch is named and sized here, and its codes
- * are generated later from Create Codes under the renewal's inherited window.
+ * One class inside a new batch: its name and exactly how many codes it gets.
+ * Deliberately no code-generation fields — codes are made later in Create Codes.
  */
-export interface RenewBatchesNewBatchInput {
+export interface CreateBatchClassInput {
   batchName: string;
   seatCount: number;
 }
 
-export interface RenewBatchesInput {
-  /** Existing batches to renew in place. May be empty when only allocating a new batch. */
-  batchNames?: string[];
-  /** Optional seat-only allocation made alongside the renewal. */
-  newBatch?: RenewBatchesNewBatchInput;
-  /** Optional: several seat-only allocations in the same renewal. */
-  newBatches?: RenewBatchesNewBatchInput[];
+/** A new, independent batch for a school: dates, payment and classes. */
+export interface CreateBatchInput {
   planDuration: PlanDuration;
   startAt: string;
   expiresAt: string;
-  seatLimit?: number;
+  classes: CreateBatchClassInput[];
+  payment?: OrganizationPaymentInput;
   billingReference?: string;
   notes?: string;
   idempotencyKey: string;
 }
 
-// RenewBatchesResult lives in organizationService, where GenerateCodesResult is
-// already in scope — importing it here would create a module cycle.
+/** Renewal of ONE batch: new dates and its own payment. Seats stay the same unless overridden. */
+export interface RenewBatchInput {
+  planDuration: PlanDuration;
+  startAt: string;
+  expiresAt: string;
+  seatLimit?: number;
+  payment?: OrganizationPaymentInput;
+  billingReference?: string;
+  notes?: string;
+  idempotencyKey: string;
+}

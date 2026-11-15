@@ -2,8 +2,10 @@ import { useId, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   ArrowRight,
+  Bell,
   CalendarClock,
   ChevronDown,
+  FileDown,
   GraduationCap,
   KeyRound,
   LayoutDashboard,
@@ -34,8 +36,8 @@ const pages: GuidePage[] = [
     icon: LayoutDashboard,
     text: "Your school at a glance.",
     more: [
-      "This is the first page you see after signing in. At the top you will find your school name, your plan and how many seats are in use.",
-      "Below that are four quick boxes: your Plan, the Valid until date, how many students have joined, and how many codes are still unused.",
+      "This is the first page you see after signing in. At the top you will find your school name, its status, how many subscriptions are live and how many seats are in use.",
+      "Below that are four boxes: Subscriptions, Next end, Redeemed students and Unused codes. Tap any box to see the numbers for each of your subscriptions.",
       "At the bottom you can see the five students who joined most recently. Choose View all to see everyone.",
     ],
   },
@@ -45,9 +47,20 @@ const pages: GuidePage[] = [
     icon: KeyRound,
     text: "All the codes given to your school.",
     more: [
-      "Every code is listed with its status, the batch it belongs to, the student who used it, and the dates it was created and used. For safety, only the last digits of each code are shown.",
+      "Every code is listed with its status, its class, the student who used it, and the dates it was created and used. For safety, only the last digits of each code are shown here.",
       "Use the search box to find a code or a student ID. Use the status filter to see, for example, only the codes that are not used yet.",
-      "Choose Download to save the codes on your screen as a spreadsheet file. You will be asked for your password first. The full codes are in the email CensorX sent to your school.",
+      "To get the full codes, use Download Codes.",
+    ],
+  },
+  {
+    label: "Download Codes",
+    to: "/school/download-codes",
+    icon: FileDown,
+    text: "Your full codes as an Excel file.",
+    more: [
+      "Download every code at once, one batch, or only the classes you tick. You will be asked for your password each time.",
+      "The file shows each code with its class, whether it has been used, the student and the end date.",
+      "Codes made before this page existed show as “Not available”. Use the codes email for those, or contact us.",
     ],
   },
   {
@@ -65,11 +78,22 @@ const pages: GuidePage[] = [
     label: "Subscription",
     to: "/school/subscription",
     icon: CalendarClock,
-    text: "Your plan and seats.",
+    text: "Your subscribed plans, dates and bills.",
     more: [
-      "See your current plan, its status, the total number of seats and how many are still free.",
-      "The history below lists every plan your school has had, with the start date, end date and number of seats.",
-      `To renew, extend or add more seats, write to ${SUPPORT_EMAIL}.`,
+      "Your school can have more than one subscription. Each has its own classes, start and end dates, seats and bill.",
+      "Your school is Active while any subscription is live. It shows Expired only when every one has ended. A student's code works until the end date of their class's subscription.",
+      "Choose View details on a subscription to see its classes, the amount paid, the installments with their due dates, the payments received, and every bill as a PDF.",
+      `To renew, add classes or add students, write to ${SUPPORT_EMAIL}.`,
+    ],
+  },
+  {
+    label: "Notifications",
+    to: "/school/notifications",
+    icon: Bell,
+    text: "Messages about your subscriptions and payments.",
+    more: [
+      "You are told here when a subscription is set up or renewed, when codes are ready, 3 days before it ends and when it has ended, when access is paused or restored, when a payment is received, when an installment is due or overdue, and when your bill is updated.",
+      "The bell at the top shows how many messages you have not read yet. The same messages are emailed to your school's contact email.",
     ],
   },
   {
@@ -101,19 +125,43 @@ const faqs = [
   },
   {
     q: "Where can I find my activation codes?",
-    a: "Student Codes shows every code, but only the last digits are visible. The full codes are in the email CensorX sent to your school.",
+    a: "CensorX emails each class's codes to your school. You can also download them any time from Download Codes, as an Excel file.",
   },
   {
-    q: "How do I download my codes list?",
-    a: "Open Student Codes, choose Download and enter your password. You get a spreadsheet file of the codes currently on the page. Codes in this file are masked.",
+    q: "I lost the codes email. What do I do?",
+    a: "Open Download Codes, choose the batch or the classes, and enter your password. You get the full codes again.",
   },
   {
-    q: "How do I add more students or seats, or renew my plan?",
-    a: `Please contact CensorX at ${SUPPORT_EMAIL}. The Subscription page shows your current plan and seats.`,
+    q: "How do I add more students or classes, or renew a subscription?",
+    a: `Please contact CensorX at ${SUPPORT_EMAIL}. New classes are added as a new subscription; renewing keeps the same codes working.`,
   },
   {
-    q: "What does “Valid until” mean?",
-    a: "It is the date your current plan ends.",
+    q: "Why does one class say Expired while my school is Active?",
+    a: "Each subscription has its own end date. Your school stays Active while any subscription is live. Students in an ended one need it renewed.",
+  },
+  {
+    q: "Where are my bills and how much is still due?",
+    a: "Open Subscription and choose View details on a subscription. You will see the installments with their due dates, the payments received, and every bill as a PDF.",
+  },
+  {
+    q: "Will I get a new bill after paying an installment?",
+    a: "Yes. Each time CensorX records a payment you get an updated bill by email, and it appears on that subscription's page.",
+  },
+  {
+    q: "Why do I keep getting payment emails?",
+    a: `An installment is still unpaid. After the overdue email, a reminder is sent every 3 days until it is paid. If you have already paid, contact ${SUPPORT_EMAIL} with your invoice number and we will update your account.`,
+  },
+  {
+    q: "Our subscription has ended. Why do we get renewal emails?",
+    a: "After a subscription ends we send a renewal reminder every 4 days, so your students do not stay without protection. Renewing stops them. If you do not want them, reply “Stop” to any of these emails.",
+  },
+  {
+    q: "Why is a subscription shown as Paused?",
+    a: `CensorX has paused access for that subscription, usually because a payment is overdue. Students in it cannot use the app until it is restored; their codes are kept. Please contact ${SUPPORT_EMAIL}.`,
+  },
+  {
+    q: "What does “Next end” on the Dashboard mean?",
+    a: "It is the soonest date on which one of your live subscriptions ends.",
   },
   {
     q: "A code does not work. What should I check?",

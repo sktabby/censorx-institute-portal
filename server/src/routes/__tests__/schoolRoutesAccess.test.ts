@@ -15,6 +15,7 @@ vi.mock("../../middleware/requireFirebaseAuth", () => ({
     req.firebaseUid = "school-admin-uid";
     next();
   },
+  requireRecentLogin: () => (_req: any, _res: any, next: any) => next(),
 }));
 
 vi.mock("../../middleware/requirePortalUser", () => ({
@@ -43,6 +44,12 @@ vi.mock("../../controllers/schoolController", () => ({
   getCodes: (_req: any, res: any) => res.json({ success: true, data: { items: [] }, meta: {} }),
   getStudents: (_req: any, res: any) => res.json({ success: true, data: [], meta: {} }),
   getSubscription: (_req: any, res: any) => res.json({ success: true, data: {}, meta: {} }),
+  getBatches: vi.fn(),
+  getBatchBill: vi.fn(),
+  getBatchBillPdf: vi.fn(),
+  getNotifications: vi.fn(),
+  readNotifications: vi.fn(),
+  exportCodes: vi.fn(),
 }));
 
 /**
@@ -75,8 +82,26 @@ vi.mock("../../controllers/adminController", () => ({
   deleteBatch: vi.fn(),
   listStudents: vi.fn(),
   listOrganizationBatches: vi.fn(),
-  renewOrganizationBatches: vi.fn(),
   listSubscriptionHistory: vi.fn(),
+  listBatchSubscriptions: vi.fn(),
+  createBatch: vi.fn(),
+  renewBatch: vi.fn(),
+  cancelBatch: vi.fn(),
+  extendBatch: vi.fn(),
+  addClassSeats: vi.fn(),
+  getBatchBill: vi.fn(),
+  getBatchBillPdf: vi.fn(),
+  getOrganizationBillPdf: vi.fn(),
+  sendBatchBill: vi.fn(),
+  recordBatchPayment: vi.fn(),
+  updateInstallmentDates: vi.fn(),
+  pauseBatch: vi.fn(),
+  resumeBatch: vi.fn(),
+  exportOrganizationCodes: vi.fn(),
+  createdCodesWorkbook: vi.fn(),
+  parseStudentIdFile: vi.fn(),
+  checkStudentIds: vi.fn(),
+  setRenewalEmails: vi.fn(),
 }));
 
 vi.mock("../../controllers/publicController", () => ({

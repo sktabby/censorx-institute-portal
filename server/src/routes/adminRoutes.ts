@@ -5,15 +5,28 @@ import { adminRateLimiter } from "../middleware/rateLimiters";
 import { asyncHandler } from "../middleware/asyncHandler";
 import { validateBody, validateParams, validateQuery } from "../middleware/validate";
 import {
+  addClassSeatsSchema,
+  billQuerySchema,
+  installmentDatesSchema,
+  pauseBatchSchema,
+  renewalEmailsSchema,
+  recordPaymentSchema,
   batchParamSchema,
+  classParamSchema,
+  codeExportQuerySchema,
+  createdCodesWorkbookSchema,
+  studentIdFileSchema,
+  studentIdCheckSchema,
   codeListQuerySchema,
+  createBatchSchema,
   createOrganizationSchema,
   deleteBatchSchema,
   orgIdParamSchema,
   licenseIdParamSchema,
   organizationListQuerySchema,
+  renewBatchSchema,
   renewSubscriptionSchema,
-  renewBatchesSchema,
+  subscriptionIdParamSchema,
   extendSubscriptionSchema,
   increaseSeatsSchema,
   generateCodesSchema,
@@ -36,31 +49,120 @@ router.delete("/admin/organizations/:organizationId", validateParams(orgIdParamS
 
 router.post("/admin/organizations/:organizationId/suspend", validateParams(orgIdParamSchema), asyncHandler(adminController.suspendOrganization));
 router.post("/admin/organizations/:organizationId/reactivate", validateParams(orgIdParamSchema), asyncHandler(adminController.reactivateOrganization));
-router.post("/admin/organizations/:organizationId/cancel", validateParams(orgIdParamSchema), asyncHandler(adminController.cancelOrganization));
+// Legacy school-level bill (schools billed before batches existed).
 router.get("/admin/organizations/:organizationId/bill", validateParams(orgIdParamSchema), asyncHandler(adminController.getOrganizationBill));
+router.get("/admin/organizations/:organizationId/bill/pdf", validateParams(orgIdParamSchema), asyncHandler(adminController.getOrganizationBillPdf));
 router.post("/admin/organizations/:organizationId/bill/send", validateParams(orgIdParamSchema), asyncHandler(adminController.sendOrganizationBill));
 
+// ---------------------------------------------------------------------------
+// Batches: each one an independent subscription with its own dates, seats,
+// payment and classes. Codes are never generated here — see Create Codes.
+// ---------------------------------------------------------------------------
+router.get(
+  "/admin/organizations/:organizationId/subscription-batches",
+  validateParams(orgIdParamSchema),
+  asyncHandler(adminController.listBatchSubscriptions)
+);
+router.post(
+  "/admin/organizations/:organizationId/subscription-batches",
+  validateParams(orgIdParamSchema),
+  validateBody(createBatchSchema),
+  asyncHandler(adminController.createBatch)
+);
+router.post(
+  "/admin/organizations/:organizationId/subscription-batches/:subscriptionId/renew",
+  validateParams(subscriptionIdParamSchema),
+  validateBody(renewBatchSchema),
+  asyncHandler(adminController.renewBatch)
+);
+router.post(
+  "/admin/organizations/:organizationId/subscription-batches/:subscriptionId/cancel",
+  validateParams(subscriptionIdParamSchema),
+  asyncHandler(adminController.cancelBatch)
+);
+router.post(
+  "/admin/organizations/:organizationId/subscription-batches/:subscriptionId/extend",
+  validateParams(subscriptionIdParamSchema),
+  validateBody(extendSubscriptionSchema),
+  asyncHandler(adminController.extendBatch)
+);
+router.post(
+  "/admin/organizations/:organizationId/subscription-batches/:subscriptionId/classes/:batchName/add-seats",
+  validateParams(classParamSchema),
+  validateBody(addClassSeatsSchema),
+  asyncHandler(adminController.addClassSeats)
+);
+router.get(
+  "/admin/organizations/:organizationId/subscription-batches/:subscriptionId/bill",
+  validateParams(subscriptionIdParamSchema),
+  validateQuery(billQuerySchema),
+  asyncHandler(adminController.getBatchBill)
+);
+router.get(
+  "/admin/organizations/:organizationId/subscription-batches/:subscriptionId/bill/pdf",
+  validateParams(subscriptionIdParamSchema),
+  validateQuery(billQuerySchema),
+  asyncHandler(adminController.getBatchBillPdf)
+);
+router.post(
+  "/admin/organizations/:organizationId/subscription-batches/:subscriptionId/bill/send",
+  validateParams(subscriptionIdParamSchema),
+  validateQuery(billQuerySchema),
+  asyncHandler(adminController.sendBatchBill)
+);
+router.post(
+  "/admin/organizations/:organizationId/subscription-batches/:subscriptionId/payments",
+  validateParams(subscriptionIdParamSchema),
+  validateBody(recordPaymentSchema),
+  asyncHandler(adminController.recordBatchPayment)
+);
+router.put(
+  "/admin/organizations/:organizationId/subscription-batches/:subscriptionId/installments",
+  validateParams(subscriptionIdParamSchema),
+  validateBody(installmentDatesSchema),
+  asyncHandler(adminController.updateInstallmentDates)
+);
+router.post(
+  "/admin/organizations/:organizationId/subscription-batches/:subscriptionId/pause",
+  validateParams(subscriptionIdParamSchema),
+  validateBody(pauseBatchSchema),
+  asyncHandler(adminController.pauseBatch)
+);
+router.post(
+  "/admin/organizations/:organizationId/subscription-batches/:subscriptionId/resume",
+  validateParams(subscriptionIdParamSchema),
+  asyncHandler(adminController.resumeBatch)
+);
+router.post(
+  "/admin/organizations/:organizationId/subscription-batches/:subscriptionId/renewal-emails",
+  validateParams(subscriptionIdParamSchema),
+  validateBody(renewalEmailsSchema),
+  asyncHandler(adminController.setRenewalEmails)
+);
+// Create Codes: the codes just made as an Excel file, and reading a file of student IDs.
+router.post("/admin/codes/workbook", validateBody(createdCodesWorkbookSchema), asyncHandler(adminController.createdCodesWorkbook));
+router.post("/admin/student-ids/parse", validateBody(studentIdFileSchema), asyncHandler(adminController.parseStudentIdFile));
+router.post(
+  "/admin/organizations/:organizationId/student-ids/check",
+  validateParams(orgIdParamSchema),
+  validateBody(studentIdCheckSchema),
+  asyncHandler(adminController.checkStudentIds)
+);
+
+router.get(
+  "/admin/organizations/:organizationId/codes/export",
+  validateParams(orgIdParamSchema),
+  validateQuery(codeExportQuerySchema),
+  asyncHandler(adminController.exportOrganizationCodes)
+);
+
+// Legacy school-level actions: each applies to the school's primary batch.
+router.post("/admin/organizations/:organizationId/cancel", validateParams(orgIdParamSchema), asyncHandler(adminController.cancelOrganization));
 router.post(
   "/admin/organizations/:organizationId/renew",
   validateParams(orgIdParamSchema),
   validateBody(renewSubscriptionSchema),
   asyncHandler(adminController.renewOrganization)
-);
-router.get(
-  "/admin/organizations/:organizationId/subscriptions",
-  validateParams(orgIdParamSchema),
-  asyncHandler(adminController.listSubscriptionHistory)
-);
-router.get(
-  "/admin/organizations/:organizationId/batches",
-  validateParams(orgIdParamSchema),
-  asyncHandler(adminController.listOrganizationBatches)
-);
-router.post(
-  "/admin/organizations/:organizationId/batches/renew",
-  validateParams(orgIdParamSchema),
-  validateBody(renewBatchesSchema),
-  asyncHandler(adminController.renewOrganizationBatches)
 );
 router.post(
   "/admin/organizations/:organizationId/extend",
@@ -73,6 +175,17 @@ router.post(
   validateParams(orgIdParamSchema),
   validateBody(increaseSeatsSchema),
   asyncHandler(adminController.increaseSeats)
+);
+
+router.get(
+  "/admin/organizations/:organizationId/subscriptions",
+  validateParams(orgIdParamSchema),
+  asyncHandler(adminController.listSubscriptionHistory)
+);
+router.get(
+  "/admin/organizations/:organizationId/batches",
+  validateParams(orgIdParamSchema),
+  asyncHandler(adminController.listOrganizationBatches)
 );
 
 router.get(

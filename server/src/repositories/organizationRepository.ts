@@ -72,18 +72,97 @@ export function withEffectiveSubscriptionStatus(subscription: OrganizationSubscr
   return { ...subscription, status: getEffectiveSubscriptionStatus(subscription, now) };
 }
 
+type SubscriptionWindow = Pick<OrganizationSubscription, "status" | "expiresAt">;
+
+/**
+ * A batch period that currently counts for the school: stored ACTIVE and still inside its
+ * window. RENEWED periods are excluded even when inside their window — the period that
+ * renewed them carries their seats and classes now — and CANCELLED/SUSPENDED never count.
+ */
+export function isLiveBatch(subscription: SubscriptionWindow | null | undefined, now = new Date()): boolean {
+  if (!subscription) return false;
+  return getEffectiveSubscriptionStatus(subscription, now) === "ACTIVE";
+}
+
+/**
+ * School status from ALL of its batches:
+ *   - SUSPENDED / ARCHIVED set by an admin always win;
+ *   - ACTIVE while at least one batch is live;
+ *   - EXPIRED only once every batch has ended (or was cancelled);
+ *   - a school with no batch yet keeps its stored status.
+ *
+ * Accepts a single subscription too, for callers that only know about one.
+ */
 export function getEffectiveOrganizationStatus(
   organization: Pick<Organization, "status">,
-  subscription: Pick<OrganizationSubscription, "status" | "expiresAt"> | null | undefined,
+  subscriptions: SubscriptionWindow | SubscriptionWindow[] | null | undefined,
   now = new Date()
 ): OrganizationStatus {
   if (organization.status === "SUSPENDED" || organization.status === "ARCHIVED") {
     return organization.status;
   }
-  if (subscription && getEffectiveSubscriptionStatus(subscription, now) === "EXPIRED") {
-    return "EXPIRED";
+  const list = Array.isArray(subscriptions) ? subscriptions : subscriptions ? [subscriptions] : [];
+  if (list.length === 0) return organization.status;
+  return list.some((subscription) => isLiveBatch(subscription, now)) ? "ACTIVE" : "EXPIRED";
+}
+
+/** Seats of every live batch added together — what the school has bought and can still use. */
+export function sumLiveSeatLimit(
+  subscriptions: Array<SubscriptionWindow & Pick<OrganizationSubscription, "seatLimit">>,
+  now = new Date()
+): number {
+  return subscriptions.reduce((sum, subscription) => sum + (isLiveBatch(subscription, now) ? subscription.seatLimit : 0), 0);
+}
+
+function timestampMillis(value: unknown): number {
+  if (value && typeof (value as { toMillis?: unknown }).toMillis === "function") {
+    return (value as FirebaseFirestore.Timestamp).toMillis();
   }
-  return organization.status;
+  return 0;
+}
+
+/** Every batch period of a school, statuses projected to read time, oldest first. */
+export async function listOrganizationSubscriptions(
+  organizationId: string,
+  now = new Date()
+): Promise<OrganizationSubscription[]> {
+  const snap = await subscriptions().where("organizationId", "==", organizationId).get();
+  return snap.docs
+    .map((doc) => withEffectiveSubscriptionStatus(doc.data() as OrganizationSubscription, now))
+    .sort((a, b) => timestampMillis(a.createdAt) - timestampMillis(b.createdAt));
+}
+
+/**
+ * The batch an admin most likely means when they say "the school's plan": the live batch that
+ * ends last, else the most recently created period. Null for a school with no batch.
+ */
+export function pickPrimarySubscription(
+  list: OrganizationSubscription[],
+  now = new Date()
+): OrganizationSubscription | null {
+  if (list.length === 0) return null;
+  const live = list.filter((subscription) => isLiveBatch(subscription, now));
+  if (live.length > 0) {
+    return live.reduce((best, candidate) =>
+      candidate.expiresAt.toMillis() > best.expiresAt.toMillis() ? candidate : best
+    );
+  }
+  return list.reduce((best, candidate) =>
+    timestampMillis(candidate.createdAt) >= timestampMillis(best.createdAt) ? candidate : best
+  );
+}
+
+/** One batch period by id, scoped to the school. Status is projected to read time. */
+export async function getSubscriptionById(
+  organizationId: string,
+  subscriptionId: string,
+  now = new Date()
+): Promise<OrganizationSubscription | null> {
+  const snap = await subscriptions().doc(subscriptionId).get();
+  if (!snap.exists) return null;
+  const subscription = snap.data() as OrganizationSubscription;
+  if (subscription.organizationId !== organizationId) return null;
+  return withEffectiveSubscriptionStatus(subscription, now);
 }
 
 function isExpiredCoverage(
@@ -152,21 +231,13 @@ export function withEffectiveActivationCodeStatus(
   return { ...code, status: getEffectiveActivationCodeStatus(code, subscription, license, now) };
 }
 
-export async function getCurrentSubscription(
-  organizationId: string,
-  options: { effectiveStatus?: boolean } = {}
-): Promise<OrganizationSubscription | null> {
-  const org = await getOrganization(organizationId);
-  if (!org?.currentSubscriptionId) return null;
-  const snap = await subscriptions().doc(org.currentSubscriptionId).get();
-  if (!snap.exists) return null;
-
-  const subscription = snap.data() as OrganizationSubscription;
-  return options.effectiveStatus === false ? subscription : withEffectiveSubscriptionStatus(subscription);
-}
-
+/**
+ * The school's primary batch (see pickPrimarySubscription). Kept under its old name because
+ * many callers only need "the plan to show"; anything that acts on a batch must take an explicit
+ * subscriptionId instead.
+ */
 export async function getActiveSubscription(organizationId: string): Promise<OrganizationSubscription | null> {
-  return getCurrentSubscription(organizationId);
+  return pickPrimarySubscription(await listOrganizationSubscriptions(organizationId));
 }
 
 export async function listOrganizationCodes(organizationId: string, limit?: number) {
@@ -195,23 +266,43 @@ export async function listOrganizationCodes(organizationId: string, limit?: numb
 }
 
 /**
- * Loads a school's licenses once and derives every seat number from their
- * effective statuses. This is the only place seat usage is produced for
- * read paths; the stored organization.purchasedSeats / activatedSeats
- * counters remain solely as the transaction-local guard used by redemption.
+ * School-wide seat usage: every licence of the school, against the seats of every live batch
+ * added together. This is the only place school-wide seat usage is produced for read paths;
+ * the stored organization.purchasedSeats / activatedSeats counters remain solely as the
+ * transaction-local guard used by redemption.
+ *
+ * Pass `scope` to measure against a different seat limit (used while a batch is being changed
+ * and its new limit is not stored yet).
  */
 export async function getOrganizationSeatUsage(
   organizationId: string,
-  subscription?: Pick<OrganizationSubscription, "seatLimit"> | null
+  scope?: Pick<OrganizationSubscription, "seatLimit"> | null
 ): Promise<SeatUsage> {
-  const [licenses, currentSubscription] = await Promise.all([
+  const [licenses, allSubscriptions] = await Promise.all([
     listOrganizationLicenses(organizationId),
-    subscription === undefined ? getCurrentSubscription(organizationId) : Promise.resolve(subscription),
+    scope === undefined ? listOrganizationSubscriptions(organizationId) : Promise.resolve([]),
   ]);
 
   return buildSeatUsage({
     effectiveStatuses: licenses.map((license) => license.status),
-    seatLimit: currentSubscription?.seatLimit ?? 0,
+    seatLimit: scope === undefined ? sumLiveSeatLimit(allSubscriptions) : scope?.seatLimit ?? 0,
+  });
+}
+
+/**
+ * Seat usage of ONE batch: only the licences sitting on that period, against that period's own
+ * seat limit. Code generation gates on this, so one batch can never spend another's seats.
+ */
+export async function getSubscriptionSeatUsage(
+  organizationId: string,
+  subscription: Pick<OrganizationSubscription, "subscriptionId" | "seatLimit">
+): Promise<SeatUsage> {
+  const licenses = await listOrganizationLicenses(organizationId);
+  return buildSeatUsage({
+    effectiveStatuses: licenses
+      .filter((license) => license.subscriptionId === subscription.subscriptionId)
+      .map((license) => license.status),
+    seatLimit: subscription.seatLimit,
   });
 }
 

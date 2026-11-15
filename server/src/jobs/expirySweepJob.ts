@@ -2,6 +2,7 @@ import cron, { type ScheduledTask } from "node-cron";
 import { env } from "../config/env";
 import { logger } from "../config/logger";
 import { runExpirySweep } from "../services/expirySweepService";
+import { runBatchNotifications } from "../services/notificationService";
 
 let task: ScheduledTask | null = null;
 /** Guards against a slow sweep overlapping the next scheduled tick. */
@@ -16,6 +17,7 @@ async function executeSweep(trigger: "cron" | "boot") {
   running = true;
   try {
     const result = await runExpirySweep();
+    // `running` is cleared after the notifications step below.
     // Only log at info when the sweep actually changed something, so a healthy
     // converged system stays quiet.
     if (result.writes > 0) {
@@ -27,9 +29,29 @@ async function executeSweep(trigger: "cron" | "boot") {
     // Never let a sweep failure take the process down: read-time projection
     // still returns correct statuses until the next successful run.
     logger.error({ err, trigger }, "Expiry sweep failed");
-  } finally {
-    running = false;
   }
+
+  // Batch notices run after the sweep on the same tick: "ends in N days" and "has ended".
+  if (env.BATCH_NOTIFICATIONS_ENABLED) {
+    try {
+      const notified = await runBatchNotifications();
+      const changed =
+        notified.remindersCreated +
+        notified.reminderEmailsSent +
+        notified.endedNoticesCreated +
+        notified.endedEmailsSent +
+        notified.paymentRemindersSent;
+      if (changed > 0 || notified.emailFailures > 0) {
+        logger.info({ trigger, ...notified }, "Batch notifications sent");
+      } else {
+        logger.debug({ trigger, durationMs: notified.durationMs }, "Batch notifications found nothing to send");
+      }
+    } catch (err) {
+      logger.error({ err, trigger }, "Batch notifications failed");
+    }
+  }
+
+  running = false;
 }
 
 /**

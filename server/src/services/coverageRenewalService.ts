@@ -26,10 +26,16 @@ export interface RestoreCoverageInput {
   /** New coverage end date written onto each restored license. */
   expiresAt: Timestamp;
   /**
-   * Restrict the restore to these batches. Omit to restore every
-   * non-terminal license in the school (whole-subscription renewal).
+   * Restrict the restore to these classes (sheet names). Omit, together with
+   * subscriptionIds, to restore every non-terminal license in the school.
    */
   batchNames?: string[];
+  /**
+   * Restrict the restore to licences sitting on these batch periods. This is how a
+   * batch renewal moves exactly its own classes onto the new period and nothing else.
+   * When both filters are given a licence must match both.
+   */
+  subscriptionIds?: string[];
   actorUid: string;
 }
 
@@ -185,6 +191,7 @@ export async function restoreCoverage(input: RestoreCoverageInput): Promise<Rest
   });
 
   const batchFilter = input.batchNames?.length ? new Set(input.batchNames) : null;
+  const subscriptionFilter = input.subscriptionIds?.length ? new Set(input.subscriptionIds) : null;
   const writer = createBatchWriter();
   const now = Timestamp.now();
 
@@ -204,7 +211,9 @@ export async function restoreCoverage(input: RestoreCoverageInput): Promise<Rest
     const code = codeDoc ? (codeDoc.data() as OrganizationActivationCode) : null;
     const batchName = code?.batchName ?? null;
 
-    const inScope = !batchFilter || (batchName !== null && batchFilter.has(batchName));
+    const inBatchScope = !batchFilter || (batchName !== null && batchFilter.has(batchName));
+    const inSubscriptionScope = !subscriptionFilter || subscriptionFilter.has(license.subscriptionId);
+    const inScope = inBatchScope && inSubscriptionScope;
     const restorable = inScope && !TERMINAL_LICENSE_STATUSES.has(license.status);
 
     // Effective, not stored: a locked-out student's document still reads ACTIVE

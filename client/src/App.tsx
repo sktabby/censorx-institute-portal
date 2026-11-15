@@ -19,6 +19,9 @@ import SchoolDashboard from "./pages/school/SchoolDashboard";
 import SchoolCodes from "./pages/school/SchoolCodes";
 import SchoolStudents from "./pages/school/SchoolStudents";
 import SchoolSubscription from "./pages/school/SchoolSubscription";
+import SchoolDownloadCodes from "./pages/school/SchoolDownloadCodes";
+import SchoolBatchDetail from "./pages/school/SchoolBatchDetail";
+import SchoolNotifications from "./pages/school/SchoolNotifications";
 import SchoolAccount from "./pages/school/Account";
 import SchoolGuide from "./pages/school/Guide";
 
@@ -52,6 +55,9 @@ export default function App() {
         <Route path="/school/codes" element={<SchoolCodes />} />
         <Route path="/school/students" element={<SchoolStudents />} />
         <Route path="/school/subscription" element={<SchoolSubscription />} />
+        <Route path="/school/subscription/:subscriptionId" element={<SchoolBatchDetail />} />
+        <Route path="/school/download-codes" element={<SchoolDownloadCodes />} />
+        <Route path="/school/notifications" element={<SchoolNotifications />} />
         <Route path="/school/account" element={<SchoolAccount />} />
         <Route path="/school/guide" element={<SchoolGuide />} />
       </Route>
